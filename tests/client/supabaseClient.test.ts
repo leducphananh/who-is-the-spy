@@ -13,6 +13,20 @@ describe('Hybrid Supabase Client Provider', () => {
     expect(isUsingRealSupabase()).toBe(false);
   });
 
+  it('nhận diện chính xác khi có env variables của Supabase Cloud', () => {
+    const originalUrl = import.meta.env.VITE_SUPABASE_URL;
+    const originalKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+    try {
+      import.meta.env.VITE_SUPABASE_URL = 'https://mssgbgefexgahlnbtlgo.supabase.co';
+      import.meta.env.VITE_SUPABASE_ANON_KEY = 'test-anon-key';
+      expect(isUsingRealSupabase()).toBe(true);
+    } finally {
+      import.meta.env.VITE_SUPABASE_URL = originalUrl;
+      import.meta.env.VITE_SUPABASE_ANON_KEY = originalKey;
+    }
+  });
+
   it('2 client tạo từ getSupabaseClient có thể liên lạc với nhau qua fallback hub', async () => {
     const client1 = getSupabaseClient('test-user-1');
     const client2 = getSupabaseClient('test-user-2');
