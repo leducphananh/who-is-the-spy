@@ -122,3 +122,72 @@ export function assignRolesAndWords(
     eliminatedPlayerPendingMrWhiteGuess: null,
   };
 }
+
+/**
+ * Bắt đầu vòng mô tả: chuyển phase sang 'DESCRIBING' và trỏ vào người chơi còn sống đầu tiên.
+ */
+export function startDescribing(state: GameState): GameState {
+  const firstAliveIndex = state.players.findIndex((p) => p.isAlive);
+  const currentDescriberIndex = firstAliveIndex !== -1 ? firstAliveIndex : 0;
+
+  return {
+    ...state,
+    phase: 'DESCRIBING',
+    currentDescriberIndex,
+  };
+}
+
+/**
+ * Chuyển lượt mô tả sang người chơi còn sống tiếp theo.
+ * Nếu đã duyệt qua tất cả người chơi còn sống trong vòng:
+ * - Trả về `isRoundComplete: true`
+ * - Chuyển sang phase 'VOTING'
+ * - Reset trạng thái vote của mọi người chơi
+ */
+export function nextTurn(state: GameState): {
+  newState: GameState;
+  isRoundComplete: boolean;
+} {
+  const aliveIndices = state.players
+    .map((p, idx) => (p.isAlive ? idx : -1))
+    .filter((idx) => idx !== -1);
+
+  if (aliveIndices.length === 0) {
+    return {
+      newState: state,
+      isRoundComplete: true,
+    };
+  }
+
+  const currentPosInAlive = aliveIndices.indexOf(state.currentDescriberIndex);
+
+  // Nếu người hiện tại không có trong danh sách còn sống hoặc là người còn sống cuối cùng
+  if (currentPosInAlive === -1 || currentPosInAlive === aliveIndices.length - 1) {
+    // Hoàn tất vòng mô tả, chuyển sang VOTING
+    const resetPlayers = state.players.map((p) => ({
+      ...p,
+      hasVoted: false,
+      voteTargetId: null,
+    }));
+
+    return {
+      newState: {
+        ...state,
+        phase: 'VOTING',
+        players: resetPlayers,
+      },
+      isRoundComplete: true,
+    };
+  }
+
+  // Chuyển sang người còn sống tiếp theo
+  const nextDescriberIndex = aliveIndices[currentPosInAlive + 1]!;
+  return {
+    newState: {
+      ...state,
+      currentDescriberIndex: nextDescriberIndex,
+    },
+    isRoundComplete: false,
+  };
+}
+
