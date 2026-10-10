@@ -4,6 +4,8 @@ import type {
   PlayerState,
   WordPair,
   Role,
+  VoteResult,
+  GameWinner,
 } from './types.js';
 
 /**
@@ -190,4 +192,182 @@ export function nextTurn(state: GameState): {
     isRoundComplete: false,
   };
 }
+
+/**
+ * Bỏ phiếu kín chỉ định người chơi nghi vấn.
+ */
+export function castVote(
+  state: GameState,
+  voterId: string,
+  targetId: string
+): GameState {
+  if (state.phase !== 'VOTING') {
+    throw new Error('Chỉ có thể bỏ phiếu trong phase VOTING.');
+  }
+
+  const voter = state.players.find((p) => p.id === voterId);
+  if (!voter || !voter.isAlive) {
+    throw new Error('Người bỏ phiếu không tồn tại hoặc đã bị loại.');
+  }
+
+  const target = state.players.find((p) => p.id === targetId);
+  if (!target || !target.isAlive) {
+    throw new Error('Mục tiêu bị bỏ phiếu không tồn tại hoặc đã bị loại.');
+  }
+
+  const updatedPlayers = state.players.map((p) =>
+    p.id === voterId ? { ...p, hasVoted: true, voteTargetId: targetId } : p
+  );
+
+  return {
+    ...state,
+    players: updatedPlayers,
+  };
+}
+
+/**
+ * Kiểm tra điều kiện thắng thua của ván đấu:
+ * - Dân thường thắng ('CIVILIANS'): Toàn bộ Gián điệp và Mr. White đã bị loại.
+ * - Gián điệp thắng ('SPIES'): Số lượng Gián điệp còn sống >= số Dân thường còn sống.
+ * - Trận đấu tiếp tục: Trả về null.
+ */
+export function checkWinCondition(state: GameState): GameWinner {
+  const aliveCivilians = state.players.filter(
+    (p) => p.isAlive && p.role === 'CIVILIAN'
+  ).length;
+  const aliveSpies = state.players.filter(
+    (p) => p.isAlive && p.role === 'SPY'
+  ).length;
+  const aliveMrWhite = state.players.filter(
+    (p) => p.isAlive && p.role === 'MR_WHITE'
+  ).length;
+
+  // Dân thường thắng nếu hết Gián điệp và Mr. White
+  if (aliveSpies === 0 && aliveMrWhite === 0) {
+    return 'CIVILIANS';
+  }
+
+  // Gián điệp thắng nếu số Gián điệp >= số Dân thường
+  if (aliveSpies >= aliveCivilians) {
+    return 'SPIES';
+  }
+
+  return null;
+}
+
+/**
+ * Kiểm phiếu bầu chọn người bị nghi vấn.
+ * - Nếu hòa phiếu: không loại ai, isTie = true, phase = 'VOTE_RESULT'.
+ * - Nếu đa số phiếu:
+ *   + Nếu trúng Mr. White: chuyển phase sang 'MR_WHITE_GUESS' (chưa loại ngay).
+ *   + Nếu trúng Civilian hoặc Spy: loại người chơi đó (isAlive = false), kiểm tra win condition.
+ */
+export function tallyVotes(
+  state: GameState,
+  explicitVotes?: Record<string, string>
+): { newState: GameState; voteResult: VoteResult } {
+  if (state.phase !== 'VOTING') {
+    throw new Error('Chỉ có thể kiểm phiếu trong phase VOTING.');
+  }
+
+  // Khởi tạo bảng đếm phiếu cho tất cả người chơi còn sống
+  const alivePlayers = state.players.filter((p) => p.isAlive);
+  const voteCounts: Record<string, number> = {};
+  for (const p of alivePlayers) {
+    voteCounts[p.id] = 0;
+  }
+
+  // Thu thập phiếu hợp lệ
+  if (explicitVotes) {
+    for (const [voterId, targetId] of Object.entries(explicitVotes)) {
+      const voter = state.players.find((p) => p.id === voterId);
+      const target = state.players.find((p) => p.id === targetId);
+      if (voter && voter.isAlive && target && target.isAlive) {
+        voteCounts[targetId] = (voteCounts[targetId] ?? 0) + 1;
+      }
+    }
+  } else {
+    for (const player of alivePlayers) {
+      if (player.hasVoted && player.voteTargetId) {
+        const target = state.players.find((p) => p.id === player.voteTargetId);
+        if (target && target.isAlive) {
+          voteCounts[target.id] = (voteCounts[target.id] ?? 0) + 1;
+        }
+      }
+    }
+  }
+
+  // Tìm số phiếu cao nhất
+  const counts = Object.values(voteCounts);
+  const maxVotes = counts.length > 0 ? Math.max(...counts) : 0;
+  const topCandidates = alivePlayers.filter(
+    (p) => (voteCounts[p.id] ?? 0) === maxVotes && maxVotes > 0
+  );
+
+  // Trường hợp hòa phiếu: maxVotes === 0 hoặc >= 2 người cùng đứng đầu
+  if (maxVotes === 0 || topCandidates.length >= 2) {
+    const voteResult: VoteResult = {
+      isTie: true,
+      eliminatedPlayerId: null,
+      tiePlayerIds: topCandidates.map((p) => p.id),
+      voteCounts,
+    };
+
+    return {
+      newState: {
+        ...state,
+        phase: 'VOTE_RESULT',
+        lastVoteResult: voteResult,
+        eliminatedPlayerPendingMrWhiteGuess: null,
+      },
+      voteResult,
+    };
+  }
+
+  // Trường hợp có 1 người duy nhất đạt đa số phiếu
+  const eliminatedPlayer = topCandidates[0]!;
+  const voteResult: VoteResult = {
+    isTie: false,
+    eliminatedPlayerId: eliminatedPlayer.id,
+    tiePlayerIds: [eliminatedPlayer.id],
+    voteCounts,
+  };
+
+  // Nếu người bị vote là MR_WHITE -> chuyển sang MR_WHITE_GUESS
+  if (eliminatedPlayer.role === 'MR_WHITE') {
+    return {
+      newState: {
+        ...state,
+        phase: 'MR_WHITE_GUESS',
+        lastVoteResult: voteResult,
+        eliminatedPlayerPendingMrWhiteGuess: eliminatedPlayer.id,
+      },
+      voteResult,
+    };
+  }
+
+  // Nếu người bị vote là CIVILIAN hoặc SPY -> đánh dấu chết và kiểm tra win condition
+  const playersWithDead = state.players.map((p) =>
+    p.id === eliminatedPlayer.id ? { ...p, isAlive: false } : p
+  );
+
+  const potentialNewState: GameState = {
+    ...state,
+    players: playersWithDead,
+    lastVoteResult: voteResult,
+    eliminatedPlayerPendingMrWhiteGuess: null,
+  };
+
+  const winner = checkWinCondition(potentialNewState);
+
+  return {
+    newState: {
+      ...potentialNewState,
+      phase: winner ? 'GAME_OVER' : 'VOTE_RESULT',
+      winner,
+    },
+    voteResult,
+  };
+}
+
 
