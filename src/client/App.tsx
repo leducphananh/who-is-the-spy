@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Shield, Radio, AlertCircle, Volume2, VolumeX } from 'lucide-react';
 import { getSupabaseClient, isUsingRealSupabase } from './network/supabaseClient.js';
 import { SpyRoomController, type LocalPlayerInfo } from './network/SpyRoomController.js';
@@ -16,6 +16,9 @@ import { GameOverModal } from './components/Game/GameOverModal.js';
 import { HostReconnectOverlay } from './components/Game/HostReconnectOverlay.js';
 import { WordPackModal, type CustomWordPack } from './components/Lobby/WordPackModal.js';
 import type { GameConfig, WordPair } from '../core/types.js';
+import type { ActiveSession } from './network/types.js';
+
+export const SPY_ACTIVE_SESSION_KEY = 'SPY_ACTIVE_SESSION';
 
 interface UserProfile {
   name: string;
@@ -23,8 +26,24 @@ interface UserProfile {
 }
 
 export const App: React.FC = () => {
+  // Khởi tạo từ Active Session nếu F5/Reload trang
+  const [activeSession] = useState<ActiveSession | null>(() => {
+    if (typeof sessionStorage !== 'undefined') {
+      const stored = sessionStorage.getItem(SPY_ACTIVE_SESSION_KEY);
+      if (stored) {
+        try {
+          return JSON.parse(stored) as ActiveSession;
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return null;
+  });
+
   // Persistent User ID (Session-based: allows multiple tabs on same browser to play independently)
   const [userId] = useState<string>(() => {
+    if (activeSession?.userId) return activeSession.userId;
     if (typeof sessionStorage !== 'undefined') {
       const storedId = sessionStorage.getItem('spy_user_id');
       if (storedId) return storedId;
@@ -37,6 +56,9 @@ export const App: React.FC = () => {
 
   // Persistent User Profile (Session-based, fallback to localStorage if pre-seeded)
   const [profile, setProfile] = useState<UserProfile | null>(() => {
+    if (activeSession?.name) {
+      return { name: activeSession.name, avatar: activeSession.avatar };
+    }
     if (typeof sessionStorage !== 'undefined') {
       const stored = sessionStorage.getItem('spy_user_profile');
       if (stored) {
@@ -93,6 +115,13 @@ export const App: React.FC = () => {
 
   const roomState = useSpyRoom(controller);
 
+  // Tự động Reconnect vào phòng nếu phát hiện Active Session sau khi F5/Reload
+  useEffect(() => {
+    if (activeSession?.roomCode && !roomState.roomCode) {
+      roomState.joinRoom(activeSession.roomCode);
+    }
+  }, [activeSession?.roomCode, roomState.roomCode]);
+
   const handleSaveProfile = (newProfile: UserProfile) => {
     setProfile(newProfile);
     setIsEditingProfile(false);
@@ -102,14 +131,35 @@ export const App: React.FC = () => {
   };
 
   const handleCreateRoom = async (code: string) => {
+    if (typeof sessionStorage !== 'undefined') {
+      const sessionData: ActiveSession = {
+        roomCode: code,
+        userId,
+        name: profile?.name || 'Mật Vụ',
+        avatar: profile?.avatar || 'fox',
+      };
+      sessionStorage.setItem(SPY_ACTIVE_SESSION_KEY, JSON.stringify(sessionData));
+    }
     await roomState.joinRoom(code);
   };
 
   const handleJoinRoom = async (code: string) => {
+    if (typeof sessionStorage !== 'undefined') {
+      const sessionData: ActiveSession = {
+        roomCode: code,
+        userId,
+        name: profile?.name || 'Mật Vụ',
+        avatar: profile?.avatar || 'fox',
+      };
+      sessionStorage.setItem(SPY_ACTIVE_SESSION_KEY, JSON.stringify(sessionData));
+    }
     await roomState.joinRoom(code);
   };
 
   const handleLeaveRoom = async () => {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem(SPY_ACTIVE_SESSION_KEY);
+    }
     await roomState.leaveRoom();
   };
 

@@ -16,6 +16,7 @@ export interface UseSpyRoomResult extends RoomStateSnapshot {
   proceedToNextRound: () => Promise<void>;
   joinRoom: (roomCode: string, joinedAt?: number) => Promise<void>;
   leaveRoom: () => Promise<void>;
+  requestResync: () => Promise<void>;
 }
 
 function hasReactDispatcher(): boolean {
@@ -59,5 +60,6 @@ export function useSpyRoom(controller: SpyRoomController): UseSpyRoomResult {
     proceedToNextRound: controller.proceedToNextRound.bind(controller),
     joinRoom: controller.joinRoom.bind(controller),
     leaveRoom: controller.leaveRoom.bind(controller),
+    requestResync: controller.requestResync.bind(controller),
   };
 }

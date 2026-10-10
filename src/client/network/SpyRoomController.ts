@@ -30,6 +30,7 @@ export class SpyRoomController {
   private roomCode: string = '';
   private isConnected: boolean = false;
   private isHost: boolean = false;
+  private joinedAt: number = 0;
   private presenceList: PlayerPresence[] = [];
   private publicGameState: PublicGameState | null = null;
   private mySecret: SecretWordPayload | null = null;
@@ -42,6 +43,9 @@ export class SpyRoomController {
   private graceTimer: ReturnType<typeof setInterval> | null = null;
   private hostGraceSecondsRemaining: number = 0;
   private isPausedForHostReconnect: boolean = false;
+
+  // Heartbeat State Sync timer
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   private publicChannel: RealtimeChannel | null = null;
   private privateChannel: RealtimeChannel | null = null;
@@ -100,7 +104,7 @@ export class SpyRoomController {
   public async joinRoom(roomCode: string, joinedAt?: number): Promise<void> {
     try {
       this.roomCode = roomCode;
-      const effectiveJoinedAt = joinedAt ?? Date.now();
+      this.joinedAt = joinedAt ?? Date.now();
 
       // Khởi tạo Kênh Công Khai: game_room:<roomCode>
       this.publicChannel = this.supabase.channel(`game_room:${roomCode}`);
@@ -158,24 +162,52 @@ export class SpyRoomController {
         }
       );
 
-      // Subscribe cả hai kênh
-      this.publicChannel.subscribe();
-      this.privateChannel.subscribe();
+      // Subscribe cả hai kênh và chờ publicChannel sẵn sàng
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 3000);
+        this.publicChannel!.subscribe((status) => {
+          if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            clearTimeout(timer);
+            resolve();
+          }
+          if (status === 'CLOSED' && this.isConnected && this.publicChannel) {
+            this.publicChannel.subscribe();
+          }
+        });
+      });
+      this.privateChannel.subscribe((status) => {
+        if (status === 'CLOSED' && this.isConnected && this.privateChannel) {
+          this.privateChannel.subscribe();
+        }
+      });
 
       // Track Presence bản thân lên Kênh Công Khai
       await this.publicChannel.track({
         id: this.localPlayer.id,
         name: this.localPlayer.name,
         avatar: this.localPlayer.avatar ?? 'avatar_default',
-        isHost: false, // Sẽ được tính lại trong handlePresenceSync
+        isHost: this.isHost,
         isReady: true,
-        joinedAt: effectiveJoinedAt,
+        joinedAt: this.joinedAt,
         isAlive: true,
+        gamePhase: this.rawGameState?.phase ?? this.publicGameState?.phase ?? 'LOBBY',
       });
 
       this.isConnected = true;
       this.error = null;
       this.handlePresenceSync();
+
+      // Nếu phát hiện Host đang ở trong ván đấu active, chủ động gửi REQUEST_RESYNC
+      const hostP = this.presenceList.find((p) => p.isHost);
+      if (
+        !this.isHost &&
+        hostP?.gamePhase &&
+        hostP.gamePhase !== 'LOBBY' &&
+        (!this.publicGameState || this.publicGameState.phase === 'LOBBY' || !this.mySecret)
+      ) {
+        await this.requestResync();
+      }
+
       this.notify();
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err);
@@ -187,6 +219,7 @@ export class SpyRoomController {
    * Rời khỏi phòng chơi và dọn dẹp kết nối mạng.
    */
   public async leaveRoom(): Promise<void> {
+    this.stopHeartbeat();
     if (this.graceTimer) {
       clearInterval(this.graceTimer);
       this.graceTimer = null;
@@ -236,7 +269,7 @@ export class SpyRoomController {
     const newHostId = rawPresences[0]?.id;
 
     // Kiểm tra xem Host cũ có vừa rời khỏi phòng không
-    const hostLeft = previousHostId && !rawPresences.some((p) => p.id === previousHostId);
+    const hostLeft = Boolean(previousHostId && !rawPresences.some((p) => p.id === previousHostId));
 
     // Cập nhật danh sách presence mới
     this.presenceList = rawPresences.map((p) => ({
@@ -246,6 +279,17 @@ export class SpyRoomController {
 
     // Cập nhật quyền Host của bản thân
     this.isHost = newHostId === this.localPlayer.id;
+
+    // Tự động kích hoạt requestResync nếu phát hiện Host đã vào game mà client chưa có state/secret
+    const currentHost = this.presenceList.find((p) => p.isHost);
+    if (
+      !this.isHost &&
+      currentHost?.gamePhase &&
+      currentHost.gamePhase !== 'LOBBY' &&
+      (!this.publicGameState || this.publicGameState.phase === 'LOBBY' || !this.mySecret)
+    ) {
+      this.requestResync();
+    }
 
     // Xử lý khi Host rời phòng
     if (hostLeft) {
@@ -419,12 +463,26 @@ export class SpyRoomController {
           event: 'ASSIGN_SECRET_WORD',
           payload: secret as unknown as Record<string, unknown>,
         });
+        await this.supabase.removeChannel(targetPrivateChannel);
       }
     }
 
+    // Bắt đầu Heartbeat State Sync
+    this.startHeartbeat();
+
+    this.publicGameState = toPublicGameState(
+      this.rawGameState,
+      this.presenceList,
+      this.isPausedForHostReconnect,
+      this.hostGraceSecondsRemaining
+    );
+    this.notify();
+
     // Broadcast PublicGameState đã lọc sạch thông tin mật lên Kênh Công Khai
     await this.broadcastPublicState();
-    this.notify();
+
+    // Cập nhật Host presence với gamePhase
+    this.updatePresence({ gamePhase: this.rawGameState.phase }).catch(() => {});
   }
 
   /**
@@ -551,6 +609,34 @@ export class SpyRoomController {
 
     try {
       switch (action.type) {
+        case 'REQUEST_RESYNC': {
+          await this.broadcastPublicState();
+          const targetPlayer = this.rawGameState.players.find(
+            (p) => p.id === action.playerId
+          );
+          if (targetPlayer) {
+            const secret: SecretWordPayload = {
+              role: targetPlayer.role,
+              word: targetPlayer.word,
+            };
+
+            if (targetPlayer.id === this.localPlayer.id) {
+              this.mySecret = secret;
+            } else {
+              const targetPrivateChannel = this.supabase.channel(
+                `game_room:${this.roomCode}:${targetPlayer.id}`
+              );
+              await targetPrivateChannel.send({
+                type: 'broadcast',
+                event: 'ASSIGN_SECRET_WORD',
+                payload: secret as unknown as Record<string, unknown>,
+              });
+              await this.supabase.removeChannel(targetPrivateChannel);
+            }
+          }
+          return;
+        }
+
         case 'NEXT_DESCRIBE': {
           const currentDescriber =
             this.rawGameState.players[this.rawGameState.currentDescriberIndex];
@@ -598,11 +684,87 @@ export class SpyRoomController {
         }
       }
 
-      await this.broadcastPublicState();
+      if (this.rawGameState.phase === 'GAME_OVER') {
+        this.stopHeartbeat();
+      }
+
+      this.publicGameState = toPublicGameState(
+        this.rawGameState,
+        this.presenceList,
+        this.isPausedForHostReconnect,
+        this.hostGraceSecondsRemaining
+      );
       this.notify();
+
+      await this.broadcastPublicState();
+      if (this.rawGameState.phase === 'GAME_OVER') {
+        this.updatePresence({ gamePhase: 'GAME_OVER' }).catch(() => {});
+      }
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err);
       this.notify();
+    }
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    if (!this.isHost) return;
+    this.heartbeatTimer = setInterval(() => {
+      if (
+        this.isHost &&
+        this.rawGameState &&
+        this.rawGameState.phase !== 'LOBBY' &&
+        this.rawGameState.phase !== 'GAME_OVER'
+      ) {
+        this.broadcastPublicState();
+      } else {
+        this.stopHeartbeat();
+      }
+    }, 3000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private async updatePresence(extra?: Partial<PlayerPresence>): Promise<void> {
+    if (!this.publicChannel) return;
+    await this.publicChannel.track({
+      id: this.localPlayer.id,
+      name: this.localPlayer.name,
+      avatar: this.localPlayer.avatar ?? 'avatar_default',
+      isHost: this.isHost,
+      isReady: true,
+      joinedAt: this.joinedAt,
+      isAlive: true,
+      gamePhase: this.rawGameState?.phase ?? this.publicGameState?.phase ?? 'LOBBY',
+      ...extra,
+    });
+  }
+
+  /**
+   * Client gửi yêu cầu Host đồng bộ lại PublicGameState và Secret Word.
+   */
+  public async requestResync(): Promise<void> {
+    if (this.isHost) {
+      await this.broadcastPublicState();
+      return;
+    }
+
+    if (this.publicChannel) {
+      await this.publicChannel.send({
+        type: 'broadcast',
+        event: 'PLAYER_ACTION',
+        payload: {
+          action: {
+            type: 'REQUEST_RESYNC',
+            playerId: this.localPlayer.id,
+          },
+        } as unknown as Record<string, unknown>,
+      });
     }
   }
 }

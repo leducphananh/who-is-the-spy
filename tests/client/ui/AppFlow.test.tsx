@@ -14,6 +14,7 @@ describe('App Flow & Orchestration', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     container = document.createElement('div');
     document.body.appendChild(container);
     return () => {
@@ -72,5 +73,55 @@ describe('App Flow & Orchestration', () => {
     expect(container.textContent).toContain('Mã phòng mật vụ');
     expect(container.textContent).toContain('Sherlock Holmes');
     expect(container.textContent).toContain('Chủ phòng');
+  });
+
+  it('tự động khôi phục ván đấu khi phát hiện SPY_ACTIVE_SESSION trong sessionStorage (F5 persistence)', async () => {
+    sessionStorage.setItem(
+      'SPY_ACTIVE_SESSION',
+      JSON.stringify({
+        roomCode: 'F5ROOM',
+        userId: 'usr_f5_test',
+        name: 'James Bond',
+        avatar: 'fox',
+      })
+    );
+
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    // Tự động vào phòng F5ROOM với tên James Bond mà không hiện ProfileSetup hay RoomLobby
+    expect(container.textContent).toContain('Mã phòng mật vụ');
+    expect(container.textContent).toContain('F5ROOM');
+    expect(container.textContent).toContain('James Bond');
+  });
+
+  it('khi bấm Rời phòng thì dọn dẹp SPY_ACTIVE_SESSION trong sessionStorage', async () => {
+    sessionStorage.setItem(
+      'SPY_ACTIVE_SESSION',
+      JSON.stringify({
+        roomCode: 'LEAVEROOM',
+        userId: 'usr_leave_test',
+        name: 'James Bond',
+        avatar: 'fox',
+      })
+    );
+
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    const leaveBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent?.includes('Rời phòng')
+    );
+    expect(leaveBtn).toBeDefined();
+
+    await act(async () => {
+      leaveBtn?.click();
+    });
+
+    expect(sessionStorage.getItem('SPY_ACTIVE_SESSION')).toBeNull();
   });
 });

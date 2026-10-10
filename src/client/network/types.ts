@@ -15,6 +15,7 @@ export interface PlayerPresence {
   isReady: boolean;
   joinedAt: number;
   isAlive: boolean;
+  gamePhase?: GamePhase;
 }
 
 export interface PublicPlayerState {
@@ -51,7 +52,15 @@ export type PlayerAction =
   | { type: 'NEXT_DESCRIBE'; playerId: string }
   | { type: 'SUBMIT_VOTE'; voterId: string; targetId: string }
   | { type: 'MR_WHITE_GUESS'; playerId: string; guess: string }
-  | { type: 'PROCEED_ROUND'; playerId: string };
+  | { type: 'PROCEED_ROUND'; playerId: string }
+  | { type: 'REQUEST_RESYNC'; playerId: string };
+
+export interface ActiveSession {
+  roomCode: string;
+  userId: string;
+  name: string;
+  avatar: string;
+}
 
 export interface RoomStateSnapshot {
   roomCode: string;

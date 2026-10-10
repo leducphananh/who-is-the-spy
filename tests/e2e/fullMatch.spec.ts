@@ -2,12 +2,21 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Ai Là Gián Điệp - Full 4-Player Match E2E Flow', () => {
   test('chơi trọn vẹn 1 ván đấu với 4 người chơi trên các context độc lập', async ({ browser }) => {
-    // 1. Tạo 4 trang đại diện cho 4 người chơi trong cùng browser context
-    const context = await browser.newContext();
-    const p1 = await context.newPage();
-    const p2 = await context.newPage();
-    const p3 = await context.newPage();
-    const p4 = await context.newPage();
+    // 1. Tạo 4 context độc lập đại diện cho 4 thiết bị người chơi thực tế
+    const c1 = await browser.newContext();
+    const c2 = await browser.newContext();
+    const c3 = await browser.newContext();
+    const c4 = await browser.newContext();
+
+    const p1 = await c1.newPage();
+    const p2 = await c2.newPage();
+    const p3 = await c3.newPage();
+    const p4 = await c4.newPage();
+
+    p1.on('console', msg => console.log('[p1 browser]', msg.text()));
+    p2.on('console', msg => console.log('[p2 browser]', msg.text()));
+    p3.on('console', msg => console.log('[p3 browser]', msg.text()));
+    p4.on('console', msg => console.log('[p4 browser]', msg.text()));
 
     // Context 1: Host Cáo tạo profile và tạo phòng
     await p1.goto('/');
@@ -66,21 +75,27 @@ test.describe('Ai Là Gián Điệp - Full 4-Player Match E2E Flow', () => {
 
     // Vòng Mô Tả: lần lượt người đang đến lượt bấm hoàn thành mô tả
     for (let turn = 0; turn < 4; turn++) {
-      let turnCompleted = false;
+      let clickedPage: (typeof allPages)[number] | null = null;
       for (let attempt = 0; attempt < 50; attempt++) {
-        for (const page of allPages) {
+        for (let i = 0; i < allPages.length; i++) {
+          const page = allPages[i]!;
           const nextTurnBtn = page.locator('button:has-text("Hoàn thành mô tả & Chuyển lượt")');
           if (await nextTurnBtn.isVisible()) {
             await nextTurnBtn.click();
-            turnCompleted = true;
+            clickedPage = page;
             break;
           }
         }
-        if (turnCompleted) break;
+        if (clickedPage) break;
         await p1.waitForTimeout(100);
       }
-      expect(turnCompleted).toBe(true);
-      await p1.waitForTimeout(200);
+      expect(clickedPage).not.toBeNull();
+      console.log(`[E2E] Turn ${turn} clicked on page p${allPages.indexOf(clickedPage!) + 1}`);
+      // Chờ cho nút trên trang vừa click ẩn đi trước khi chuyển lượt kế tiếp
+      await expect(
+        clickedPage!.locator('button:has-text("Hoàn thành mô tả & Chuyển lượt")')
+      ).toBeHidden({ timeout: 10000 });
+      await p1.waitForTimeout(300);
     }
 
     // Sau khi 4 người mô tả xong, hệ thống chuyển sang VÒNG BỎ PHIẾU
@@ -89,7 +104,8 @@ test.describe('Ai Là Gián Điệp - Full 4-Player Match E2E Flow', () => {
     }
 
     // Tất cả người chơi bỏ phiếu
-    for (const page of allPages) {
+    for (let pIdx = 0; pIdx < allPages.length; pIdx++) {
+      const page = allPages[pIdx]!;
       const suspects = page.locator('[data-testid^="suspect-"]');
       const count = await suspects.count();
       for (let i = 0; i < count; i++) {
@@ -100,7 +116,11 @@ test.describe('Ai Là Gián Điệp - Full 4-Player Match E2E Flow', () => {
           break;
         }
       }
-      await page.click('button:has-text("XÁC NHẬN BỎ PHIẾU")');
+      const confirmBtn = page.locator('button:has-text("XÁC NHẬN BỎ PHIẾU")');
+      await expect(confirmBtn).toBeEnabled({ timeout: 5000 });
+      await confirmBtn.click();
+      await expect(confirmBtn).toBeHidden({ timeout: 10000 });
+      await p1.waitForTimeout(300);
     }
 
     // Cả 4 trang hiển thị Modal kết quả bỏ phiếu (VoteResultModal) hoặc Màn hình kết thúc trận đấu (GameOverModal)
@@ -114,7 +134,7 @@ test.describe('Ai Là Gián Điệp - Full 4-Player Match E2E Flow', () => {
       await expect(outcomeLocator.first()).toBeVisible({ timeout: 10000 });
     }
 
-    // Đóng browser context
-    await context.close();
+    // Đóng browser contexts
+    await Promise.all([c1.close(), c2.close(), c3.close(), c4.close()]);
   });
 });
