@@ -2,10 +2,14 @@ import * as React from 'react';
 import { useSyncExternalStore } from 'react';
 import type { SpyRoomController } from '../network/SpyRoomController.js';
 import type { RoomStateSnapshot } from '../network/types.js';
-import type { GameConfig } from '../../core/types.js';
+import type { GameConfig, WordPair } from '../../core/types.js';
 
 export interface UseSpyRoomResult extends RoomStateSnapshot {
-  startGame: (config: GameConfig) => Promise<void>;
+  startGame: (
+    config: GameConfig,
+    customPair?: WordPair,
+    customPack?: WordPair[]
+  ) => Promise<void>;
   nextTurn: () => Promise<void>;
   castVote: (targetId: string) => Promise<void>;
   submitMrWhiteGuess: (guess: string) => Promise<void>;

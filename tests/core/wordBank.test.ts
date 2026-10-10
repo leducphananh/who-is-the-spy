@@ -53,4 +53,17 @@ describe('Vietnamese Word Bank', () => {
     expect(pair).toBeDefined();
     expect(WORD_PAIRS).toContain(pair);
   });
+
+  it('getRandomWordPair hỗ trợ truyền danh sách cặp từ tùy biến (Custom Word Pairs)', () => {
+    const customPairs = [
+      { id: 'custom-1', civilianWord: 'Trà chanh', spyWord: 'Trà tắc', category: 'Tự chọn' },
+      { id: 'custom-2', civilianWord: 'Bún riêu', spyWord: 'Canh bún', category: 'Tự chọn' },
+    ];
+
+    const pickedFirst = getRandomWordPair(customPairs, () => 0);
+    expect(pickedFirst).toEqual(customPairs[0]);
+
+    const pickedSecond = getRandomWordPair(customPairs, () => 0.99);
+    expect(pickedSecond).toEqual(customPairs[1]);
+  });
 });

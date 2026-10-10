@@ -7,7 +7,7 @@ import type {
   PlayerAction,
 } from './types.js';
 import { toPublicGameState } from './types.js';
-import type { GameState, GameConfig } from '../../core/types.js';
+import type { GameState, GameConfig, WordPair } from '../../core/types.js';
 import {
   createInitialGame,
   assignRolesAndWords,
@@ -373,14 +373,26 @@ export class SpyRoomController {
   /**
    * Host bắt đầu ván đấu: chia vai, phát từ khóa bí mật qua Kênh Cá Nhân, và broadcast PublicGameState.
    */
-  public async startGame(config: GameConfig): Promise<void> {
+  public async startGame(
+    config: GameConfig,
+    customPair?: WordPair,
+    customPack?: WordPair[]
+  ): Promise<void> {
     if (!this.isHost) {
       throw new Error('Chỉ Host mới có quyền bắt đầu ván đấu.');
     }
 
     const players = this.presenceList.map((p) => ({ id: p.id, name: p.name }));
     const initialGame = createInitialGame(this.roomCode, players);
-    const wordPair = getRandomWordPair();
+    
+    let wordPair: WordPair;
+    if (customPair) {
+      wordPair = customPair;
+    } else if (customPack && customPack.length > 0) {
+      wordPair = getRandomWordPair(customPack);
+    } else {
+      wordPair = getRandomWordPair();
+    }
 
     // Gán vai trò và từ khóa bí mật
     this.rawGameState = assignRolesAndWords(initialGame, config, wordPair);

@@ -234,9 +234,24 @@ export const WORD_PAIRS: readonly WordPair[] = [
  *
  * @param rng Hàm trả về số ngẫu nhiên trong khoảng [0, 1), mặc định là Math.random.
  */
-export function getRandomWordPair(rng: () => number = Math.random): WordPair {
+export function getRandomWordPair(
+  pairsOrRng?: readonly WordPair[] | (() => number),
+  maybeRng?: () => number
+): WordPair {
+  let pairs: readonly WordPair[] = WORD_PAIRS;
+  let rng: () => number = Math.random;
+
+  if (typeof pairsOrRng === 'function') {
+    rng = pairsOrRng;
+  } else if (Array.isArray(pairsOrRng)) {
+    pairs = pairsOrRng.length > 0 ? pairsOrRng : WORD_PAIRS;
+    if (typeof maybeRng === 'function') {
+      rng = maybeRng;
+    }
+  }
+
   const randomValue = rng();
   const clampedRandom = Math.max(0, Math.min(0.999999999999, randomValue));
-  const index = Math.floor(clampedRandom * WORD_PAIRS.length);
-  return WORD_PAIRS[index]!;
+  const index = Math.floor(clampedRandom * pairs.length);
+  return pairs[index]!;
 }

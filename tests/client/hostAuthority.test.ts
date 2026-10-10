@@ -123,4 +123,37 @@ describe('Host Authority Peer Action Processing', () => {
       expect(c.getSnapshot().publicGameState?.roundNumber).toBe(2);
     }
   });
+
+  it('Host có thể khởi tạo ván đấu với customWordPair tùy chọn', async () => {
+    const hub = new MockRealtimeHub();
+    const clients = Array.from({ length: 3 }, (_, i) =>
+      createMockSupabaseClient(hub, `p${i + 1}`)
+    );
+    const controllers = clients.map(
+      (c, i) => new SpyRoomController(c, { id: `p${i + 1}`, name: `Player ${i + 1}` })
+    );
+
+    for (let i = 0; i < 3; i++) {
+      await controllers[i]!.joinRoom('CUSTOM_ROOM', (i + 1) * 100);
+    }
+
+    const customPair = {
+      id: 'custom-match',
+      civilianWord: 'Bún đậu',
+      spyWord: 'Mắm tôm',
+      category: 'Ẩm thực phố',
+    };
+
+    await controllers[0]!.startGame({ spyCount: 1, hasMrWhite: false }, customPair);
+
+    // Kiểm tra tất cả bí mật nhận được đều khớp với customPair
+    const allSecrets = controllers.map((c) => c.getSnapshot().mySecret);
+    const civilianSecrets = allSecrets.filter((s) => s?.role === 'CIVILIAN');
+    const spySecrets = allSecrets.filter((s) => s?.role === 'SPY');
+
+    expect(civilianSecrets.length).toBe(2);
+    expect(civilianSecrets[0]?.word).toBe('Bún đậu');
+    expect(spySecrets.length).toBe(1);
+    expect(spySecrets[0]?.word).toBe('Mắm tôm');
+  });
 });
