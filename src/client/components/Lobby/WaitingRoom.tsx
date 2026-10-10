@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Crown, Copy, Check, Users, Settings, LogOut, Play, ShieldAlert, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Crown, Copy, Check, Users, Settings, LogOut, Play, ShieldAlert, Sparkles, BookOpen, Edit3 } from 'lucide-react';
 import type { PlayerPresence } from '../../network/types.js';
-import type { GameConfig } from '../../../core/types.js';
+import type { GameConfig, WordPair } from '../../../core/types.js';
 import { AVATAR_OPTIONS, type AvatarOption } from './ProfileSetup.js';
 
 export interface WaitingRoomProps {
@@ -13,6 +13,10 @@ export interface WaitingRoomProps {
   onUpdateConfig?: (config: GameConfig) => void;
   onStartGame: () => void;
   onLeaveRoom: () => void;
+  quickWordPair?: WordPair | null | undefined;
+  onQuickWordPairChange?: ((pair: WordPair | null) => void) | undefined;
+  activePackName?: string | undefined;
+  onOpenWordPackModal?: (() => void) | undefined;
 }
 
 export const WaitingRoom: React.FC<WaitingRoomProps> = ({
@@ -24,8 +28,15 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
   onUpdateConfig,
   onStartGame,
   onLeaveRoom,
+  quickWordPair,
+  onQuickWordPairChange,
+  activePackName,
+  onOpenWordPackModal,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [useQuickWords, setUseQuickWords] = useState(Boolean(quickWordPair));
+  const [quickCiv, setQuickCiv] = useState(quickWordPair?.civilianWord || '');
+  const [quickSpy, setQuickSpy] = useState(quickWordPair?.spyWord || '');
 
   const handleCopyCode = async () => {
     try {
@@ -46,7 +57,31 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
     return found ? found.emoji : '🕵️';
   };
 
-  const canStart = players.length >= 3;
+  const isDuplicateWord =
+    useQuickWords &&
+    quickCiv.trim() !== '' &&
+    quickSpy.trim() !== '' &&
+    quickCiv.trim().toLowerCase() === quickSpy.trim().toLowerCase();
+
+  const isQuickWordIncomplete =
+    useQuickWords && (quickCiv.trim() === '' || quickSpy.trim() === '');
+
+  const canStart = players.length >= 3 && !isDuplicateWord && !isQuickWordIncomplete;
+
+  useEffect(() => {
+    if (!useQuickWords) {
+      onQuickWordPairChange?.(null);
+    } else if (quickCiv.trim() && quickSpy.trim() && !isDuplicateWord) {
+      onQuickWordPairChange?.({
+        id: `custom_${Date.now()}`,
+        civilianWord: quickCiv.trim(),
+        spyWord: quickSpy.trim(),
+        category: 'Tự nhập',
+      });
+    } else {
+      onQuickWordPairChange?.(null);
+    }
+  }, [useQuickWords, quickCiv, quickSpy, isDuplicateWord]);
 
   const handleSpyCountChange = (count: number) => {
     if (!isHost || !onUpdateConfig) return;
@@ -238,6 +273,95 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
             </span>
           )}
         </div>
+
+        {/* Word Pack Selection */}
+        <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+          <div>
+            <div className="text-xs font-medium text-slate-200">Gói từ khóa bí mật</div>
+            <div className="text-[11px] text-amber-400 font-semibold truncate max-w-[180px]">
+              {activePackName || 'Kho từ mặc định (36 cặp)'}
+            </div>
+          </div>
+          {isHost ? (
+            <button
+              type="button"
+              onClick={onOpenWordPackModal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-cyan-300 border border-slate-700 transition-all shadow-sm"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Gói từ</span>
+            </button>
+          ) : (
+            <span className="text-xs text-slate-400">Tự động</span>
+          )}
+        </div>
+
+        {/* Quick Custom Words Accordion (Host only) */}
+        {isHost && (
+          <div className="pt-2 border-t border-slate-800/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-200">
+                <input
+                  type="checkbox"
+                  data-testid="toggle-quick-word"
+                  checked={useQuickWords}
+                  onChange={(e) => setUseQuickWords(e.target.checked)}
+                  className="rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-0 w-4 h-4"
+                />
+                <span className="flex items-center gap-1">
+                  <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Tự nhập từ cho ván này</span>
+                </span>
+              </label>
+            </div>
+
+            {useQuickWords && (
+              <div className="space-y-2 pt-1 animate-fadeIn">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-cyan-400 font-semibold uppercase block mb-0.5">
+                      Từ Dân Thường
+                    </label>
+                    <input
+                      type="text"
+                      data-testid="quick-civ-word"
+                      placeholder="vd: Cà phê"
+                      value={quickCiv}
+                      onChange={(e) => setQuickCiv(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-rose-400 font-semibold uppercase block mb-0.5">
+                      Từ Gián Điệp
+                    </label>
+                    <input
+                      type="text"
+                      data-testid="quick-spy-word"
+                      placeholder="vd: Trà đá"
+                      value={quickSpy}
+                      onChange={(e) => setQuickSpy(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-400"
+                    />
+                  </div>
+                </div>
+
+                {isDuplicateWord && (
+                  <p className="text-[11px] text-rose-400 flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                    <span>Từ Dân thường và Gián điệp không được trùng nhau</span>
+                  </p>
+                )}
+
+                {isQuickWordIncomplete && (
+                  <p className="text-[11px] text-amber-400/80">
+                    Vui lòng nhập đầy đủ cả 2 từ khóa
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Action Controls */}
@@ -259,7 +383,15 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
             {!canStart && (
               <p className="text-center text-xs text-rose-400 mt-2 flex items-center justify-center gap-1">
                 <ShieldAlert className="w-3.5 h-3.5" />
-                <span>Cần tối thiểu 3 người chơi để bắt đầu</span>
+                <span>
+                  {players.length < 3
+                    ? 'Cần tối thiểu 3 người chơi để bắt đầu'
+                    : isDuplicateWord
+                    ? 'Từ Dân thường và Gián điệp không được trùng nhau'
+                    : isQuickWordIncomplete
+                    ? 'Chưa nhập đủ từ khóa tùy chỉnh'
+                    : 'Chưa đủ điều kiện bắt đầu'}
+                </span>
               </p>
             )}
           </div>

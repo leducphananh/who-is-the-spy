@@ -14,7 +14,8 @@ import { VoteResultModal } from './components/Game/VoteResultModal.js';
 import { MrWhiteModal } from './components/Game/MrWhiteModal.js';
 import { GameOverModal } from './components/Game/GameOverModal.js';
 import { HostReconnectOverlay } from './components/Game/HostReconnectOverlay.js';
-import type { GameConfig } from '../core/types.js';
+import { WordPackModal, type CustomWordPack } from './components/Lobby/WordPackModal.js';
+import type { GameConfig, WordPair } from '../core/types.js';
 
 interface UserProfile {
   name: string;
@@ -51,6 +52,9 @@ export const App: React.FC = () => {
 
   const [isEditingProfile, setIsEditingProfile] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => soundEffects.isSoundEnabled());
+  const [isWordPackModalOpen, setIsWordPackModalOpen] = useState<boolean>(false);
+  const [activePack, setActivePack] = useState<CustomWordPack | null>(null);
+  const [quickCustomWordPair, setQuickCustomWordPair] = useState<WordPair | null>(null);
   const [gameConfig, setGameConfig] = useState<GameConfig>({
     spyCount: 1,
     hasMrWhite: false,
@@ -191,8 +195,18 @@ export const App: React.FC = () => {
                   players={roomState.presenceList}
                   config={gameConfig}
                   onUpdateConfig={setGameConfig}
-                  onStartGame={() => roomState.startGame(gameConfig)}
+                  onStartGame={() =>
+                    roomState.startGame(
+                      gameConfig,
+                      quickCustomWordPair ?? undefined,
+                      activePack?.pairs
+                    )
+                  }
                   onLeaveRoom={handleLeaveRoom}
+                  quickWordPair={quickCustomWordPair}
+                  onQuickWordPairChange={setQuickCustomWordPair}
+                  activePackName={activePack?.name}
+                  onOpenWordPackModal={() => setIsWordPackModalOpen(true)}
                 />
               )}
 
@@ -244,12 +258,26 @@ export const App: React.FC = () => {
                   winner={roomState.publicGameState.winner}
                   players={roomState.publicGameState.players}
                   isHost={roomState.isHost}
-                  onPlayAgain={() => roomState.startGame(gameConfig)}
+                  onPlayAgain={() =>
+                    roomState.startGame(
+                      gameConfig,
+                      quickCustomWordPair ?? undefined,
+                      activePack?.pairs
+                    )
+                  }
                 />
               )}
             </>
           )}
         </main>
+
+        {/* Word Pack Modal */}
+        <WordPackModal
+          isOpen={isWordPackModalOpen}
+          onClose={() => setIsWordPackModalOpen(false)}
+          onSelectActivePack={setActivePack}
+          activePackId={activePack?.id || null}
+        />
       </div>
     </div>
   );
