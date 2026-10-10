@@ -370,4 +370,87 @@ export function tallyVotes(
   };
 }
 
+/**
+ * Chuẩn hóa chuỗi so sánh từ khóa tiếng Việt (lowercase, trim, gom khoảng trắng).
+ */
+function normalizeWord(word: string): string {
+  return word.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Xử lý khi Mr. White đoán từ khóa của Dân thường sau khi bị vote loại.
+ * - Nếu đoán ĐÚNG: Mr. White thắng ngay lập tức (winner = 'MR_WHITE', phase = 'GAME_OVER').
+ * - Nếu đoán SAI: Mr. White chính thức bị loại (isAlive = false), kiểm tra lại điều kiện thắng phe.
+ */
+export function submitMrWhiteGuess(
+  state: GameState,
+  playerId: string,
+  guess: string
+): GameState {
+  if (state.phase !== 'MR_WHITE_GUESS') {
+    throw new Error('Chỉ có thể đoán từ trong phase MR_WHITE_GUESS.');
+  }
+
+  if (state.eliminatedPlayerPendingMrWhiteGuess !== playerId) {
+    throw new Error('Chỉ người chơi Mr. White đang chờ đoán từ mới có quyền thực hiện.');
+  }
+
+  const isCorrect = normalizeWord(guess) === normalizeWord(state.civilianWord);
+
+  if (isCorrect) {
+    return {
+      ...state,
+      phase: 'GAME_OVER',
+      winner: 'MR_WHITE',
+      eliminatedPlayerPendingMrWhiteGuess: null,
+    };
+  }
+
+  // Đoán sai -> Mr. White chính thức bị loại
+  const updatedPlayers = state.players.map((p) =>
+    p.id === playerId ? { ...p, isAlive: false } : p
+  );
+
+  const potentialState: GameState = {
+    ...state,
+    players: updatedPlayers,
+    eliminatedPlayerPendingMrWhiteGuess: null,
+  };
+
+  const winner = checkWinCondition(potentialState);
+
+  return {
+    ...potentialState,
+    phase: winner ? 'GAME_OVER' : 'VOTE_RESULT',
+    winner,
+  };
+}
+
+/**
+ * Chuyển sang round mô tả tiếp theo sau khi xem kết quả vote (phase VOTE_RESULT).
+ */
+export function proceedToNextRound(state: GameState): GameState {
+  if (state.phase === 'GAME_OVER' || state.winner !== null) {
+    throw new Error('Ván đấu đã kết thúc, không thể chuyển sang round tiếp theo.');
+  }
+
+  const resetPlayers = state.players.map((p) => ({
+    ...p,
+    hasVoted: false,
+    voteTargetId: null,
+  }));
+
+  const firstAliveIndex = resetPlayers.findIndex((p) => p.isAlive);
+  const currentDescriberIndex = firstAliveIndex !== -1 ? firstAliveIndex : 0;
+
+  return {
+    ...state,
+    phase: 'DESCRIBING',
+    roundNumber: state.roundNumber + 1,
+    players: resetPlayers,
+    currentDescriberIndex,
+  };
+}
+
+
 
