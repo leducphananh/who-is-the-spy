@@ -20,7 +20,7 @@ export const AVATAR_OPTIONS: AvatarOption[] = [
 
 export interface ProfileSetupProps {
   onSaveProfile: (profile: { name: string; avatar: string }) => void;
-  initialProfile?: { name: string; avatar: string };
+  initialProfile?: { name: string; avatar: string } | undefined;
 }
 
 export const ProfileSetup: React.FC<ProfileSetupProps> = ({

@@ -7,7 +7,7 @@ export interface VotingViewProps {
   players: PublicPlayerState[];
   myUserId: string;
   hasVoted: boolean;
-  myVoteTargetId?: string | null;
+  myVoteTargetId?: string | null | undefined;
   onCastVote: (targetId: string) => void;
 }
 
