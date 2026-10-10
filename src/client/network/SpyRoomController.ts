@@ -122,6 +122,14 @@ export class SpyRoomController {
         (payload: { payload?: { state: PublicGameState } }) => {
           if (payload?.payload?.state) {
             this.publicGameState = payload.payload.state;
+            if (!this.publicGameState.isPausedForHostReconnect) {
+              if (this.graceTimer) {
+                clearInterval(this.graceTimer);
+                this.graceTimer = null;
+              }
+              this.hostGraceSecondsRemaining = 0;
+              this.isPausedForHostReconnect = false;
+            }
             this.notify();
           }
         }
@@ -224,28 +232,143 @@ export class SpyRoomController {
     // Sắp xếp người tham gia theo thời gian tham gia (joinedAt) tăng dần (FIFO)
     rawPresences.sort((a, b) => a.joinedAt - b.joinedAt);
 
-    // Người đầu tiên trong danh sách presence là Host
-    const primaryHostId = rawPresences[0]?.id;
-    const previouslyWasHost = this.isHost;
-    this.isHost = primaryHostId === this.localPlayer.id;
+    const previousHostId = this.presenceList.find((p) => p.isHost)?.id;
+    const newHostId = rawPresences[0]?.id;
 
-    // Cập nhật cờ isHost cho từng người chơi trong presenceList
+    // Kiểm tra xem Host cũ có vừa rời khỏi phòng không
+    const hostLeft = previousHostId && !rawPresences.some((p) => p.id === previousHostId);
+
+    // Cập nhật danh sách presence mới
     this.presenceList = rawPresences.map((p) => ({
       ...p,
-      isHost: p.id === primaryHostId,
+      isHost: p.id === newHostId,
     }));
 
-    // Nếu vừa được chuyển giao quyền Host (Host Migration)
-    if (!previouslyWasHost && this.isHost) {
-      this.handleHostClaimed();
+    // Cập nhật quyền Host của bản thân
+    this.isHost = newHostId === this.localPlayer.id;
+
+    // Xử lý khi Host rời phòng
+    if (hostLeft) {
+      const isGameActive =
+        this.publicGameState &&
+        this.publicGameState.phase !== 'LOBBY' &&
+        this.publicGameState.phase !== 'GAME_OVER';
+
+      if (isGameActive) {
+        // Trong ACTIVE GAME: bật Grace Period 30s
+        this.isPausedForHostReconnect = true;
+        this.hostGraceSecondsRemaining = 30;
+        this.startGraceTimer();
+
+        if (this.publicGameState) {
+          this.publicGameState = {
+            ...this.publicGameState,
+            isPausedForHostReconnect: true,
+            hostReconnectSecondsRemaining: 30,
+          };
+        }
+      }
     }
 
     this.notify();
   }
 
-  private handleHostClaimed() {
-    // Nếu ván đấu đang diễn ra mà Host cũ thoát thì sẽ được xử lý ở Grace Period (Task 6)
+  private startGraceTimer() {
+    if (this.graceTimer) {
+      clearInterval(this.graceTimer);
+    }
+    this.graceTimer = setInterval(() => {
+      if (this.hostGraceSecondsRemaining > 0) {
+        this.hostGraceSecondsRemaining--;
+        if (this.publicGameState) {
+          this.publicGameState = {
+            ...this.publicGameState,
+            hostReconnectSecondsRemaining: this.hostGraceSecondsRemaining,
+          };
+          this.notify();
+        }
+      } else {
+        this.triggerHostReconnectTimeout();
+      }
+    }, 1000);
   }
+
+  /**
+   * Kích hoạt xử lý khi hết hạn 30s chờ Host reconnect: Hủy trận về LOBBY và chuyển quyền Host.
+   */
+  public triggerHostReconnectTimeout() {
+    if (this.graceTimer) {
+      clearInterval(this.graceTimer);
+      this.graceTimer = null;
+    }
+    this.isPausedForHostReconnect = false;
+    this.hostGraceSecondsRemaining = 0;
+
+    // Chuyển về phase LOBBY
+    if (this.publicGameState) {
+      this.publicGameState = {
+        ...this.publicGameState,
+        phase: 'LOBBY',
+        isPausedForHostReconnect: false,
+        hostReconnectSecondsRemaining: 0,
+      };
+    }
+
+    // Người còn lại có joinedAt sớm nhất là Host mới
+    const sorted = [...this.presenceList].sort((a, b) => a.joinedAt - b.joinedAt);
+    const newHostId = sorted[0]?.id;
+    this.isHost = newHostId === this.localPlayer.id;
+
+    this.notify();
+  }
+
+  /**
+   * Lấy trạng thái authoritative của Host (để sao lưu phục hồi khi mất mạng).
+   */
+  public getRawGameState(): GameState | null {
+    return this.rawGameState ? { ...this.rawGameState } : null;
+  }
+
+  /**
+   * Host phục hồi trận đấu sau khi reconnect trong vòng 30s.
+   */
+  public async resumeMatchAfterReconnect(savedState?: GameState): Promise<void> {
+    if (savedState) {
+      this.rawGameState = savedState;
+    }
+    this.isPausedForHostReconnect = false;
+    this.hostGraceSecondsRemaining = 0;
+    if (this.graceTimer) {
+      clearInterval(this.graceTimer);
+      this.graceTimer = null;
+    }
+
+    if (this.rawGameState) {
+      this.publicGameState = toPublicGameState(
+        this.rawGameState,
+        this.presenceList,
+        false,
+        0
+      );
+    } else if (this.publicGameState) {
+      this.publicGameState = {
+        ...this.publicGameState,
+        isPausedForHostReconnect: false,
+        hostReconnectSecondsRemaining: 0,
+      };
+    }
+
+    if (this.publicChannel && this.publicGameState) {
+      await this.publicChannel.send({
+        type: 'broadcast',
+        event: 'SYNC_STATE',
+        payload: { state: this.publicGameState } as unknown as Record<string, unknown>,
+      });
+    }
+
+    this.notify();
+  }
+
 
   /**
    * Host bắt đầu ván đấu: chia vai, phát từ khóa bí mật qua Kênh Cá Nhân, và broadcast PublicGameState.
