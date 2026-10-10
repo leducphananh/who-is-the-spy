@@ -371,10 +371,10 @@ export function tallyVotes(
 }
 
 /**
- * Chuẩn hóa chuỗi so sánh từ khóa tiếng Việt (lowercase, trim, gom khoảng trắng).
+ * Chuẩn hóa chuỗi so sánh từ khóa tiếng Việt (NFC unicode, lowercase, trim, gom khoảng trắng).
  */
 function normalizeWord(word: string): string {
-  return word.trim().toLowerCase().replace(/\s+/g, ' ');
+  return word.normalize('NFC').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 /**
