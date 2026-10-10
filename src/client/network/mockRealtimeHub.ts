@@ -20,6 +20,7 @@ type PresenceCallback = (payload: {
 export class MockRealtimeHub {
   private channelsByTopic = new Map<string, Set<MockRealtimeChannel>>();
   private presenceByTopic = new Map<string, Map<string, Record<string, unknown>[]>>();
+  private localTrackedPresences = new Map<string, Map<string, Record<string, unknown>>>();
   public recordedBroadcasts: { topic: string; event: string; payload: unknown }[] = [];
   private crossTabChannel: BroadcastChannel | null = null;
 
@@ -28,11 +29,71 @@ export class MockRealtimeHub {
       try {
         this.crossTabChannel = new BroadcastChannel('who_is_the_spy_realtime_hub');
         this.crossTabChannel.onmessage = (event) => {
-          const { type, sourceTopic, eventName, payload, senderId } = event.data || {};
+          const { type, sourceTopic, eventName, payload, senderId, clientId, state, presences } =
+            event.data || {};
           if (type === 'broadcast') {
             this._dispatchLocalBroadcast(sourceTopic, eventName, payload, senderId);
-          } else if (type === 'presence_sync') {
+          } else if (type === 'presence_track') {
+            let topicPresences = this.presenceByTopic.get(sourceTopic);
+            if (!topicPresences) {
+              topicPresences = new Map();
+              this.presenceByTopic.set(sourceTopic, topicPresences);
+            }
+            topicPresences.set(clientId, [state]);
             this._notifyPresence(sourceTopic);
+
+            // Phản hồi lại danh sách presence do tab này sở hữu cho tab vừa join
+            const localMap = this.localTrackedPresences.get(sourceTopic);
+            if (localMap && localMap.size > 0 && this.crossTabChannel) {
+              const list: { clientId: string; state: Record<string, unknown> }[] = [];
+              for (const [cId, s] of localMap.entries()) {
+                list.push({ clientId: cId, state: s });
+              }
+              try {
+                this.crossTabChannel.postMessage({
+                  type: 'presence_state_sync',
+                  sourceTopic,
+                  presences: list,
+                });
+              } catch {
+                // Ignored
+              }
+            }
+          } else if (type === 'presence_state_sync') {
+            let topicPresences = this.presenceByTopic.get(sourceTopic);
+            if (!topicPresences) {
+              topicPresences = new Map();
+              this.presenceByTopic.set(sourceTopic, topicPresences);
+            }
+            if (Array.isArray(presences)) {
+              for (const item of presences) {
+                topicPresences.set(item.clientId, [item.state]);
+              }
+              this._notifyPresence(sourceTopic);
+            }
+          } else if (type === 'presence_untrack') {
+            const topicPresences = this.presenceByTopic.get(sourceTopic);
+            if (topicPresences) {
+              topicPresences.delete(clientId);
+              this._notifyPresence(sourceTopic);
+            }
+          } else if (type === 'presence_query') {
+            const localMap = this.localTrackedPresences.get(sourceTopic);
+            if (localMap && localMap.size > 0 && this.crossTabChannel) {
+              const list: { clientId: string; state: Record<string, unknown> }[] = [];
+              for (const [cId, s] of localMap.entries()) {
+                list.push({ clientId: cId, state: s });
+              }
+              try {
+                this.crossTabChannel.postMessage({
+                  type: 'presence_state_sync',
+                  sourceTopic,
+                  presences: list,
+                });
+              } catch {
+                // Ignored
+              }
+            }
           }
         };
       } catch {
@@ -48,6 +109,17 @@ export class MockRealtimeHub {
       this.channelsByTopic.set(channel.topic, set);
     }
     set.add(channel);
+
+    if (this.crossTabChannel) {
+      try {
+        this.crossTabChannel.postMessage({
+          type: 'presence_query',
+          sourceTopic: channel.topic,
+        });
+      } catch {
+        // Ignored
+      }
+    }
   }
 
   unregisterChannel(channel: MockRealtimeChannel) {
@@ -103,6 +175,13 @@ export class MockRealtimeHub {
     clientId: string,
     state: Record<string, unknown>
   ) {
+    let localMap = this.localTrackedPresences.get(topic);
+    if (!localMap) {
+      localMap = new Map();
+      this.localTrackedPresences.set(topic, localMap);
+    }
+    localMap.set(clientId, state);
+
     let topicPresences = this.presenceByTopic.get(topic);
     if (!topicPresences) {
       topicPresences = new Map();
@@ -114,8 +193,10 @@ export class MockRealtimeHub {
     if (this.crossTabChannel) {
       try {
         this.crossTabChannel.postMessage({
-          type: 'presence_sync',
+          type: 'presence_track',
           sourceTopic: topic,
+          clientId,
+          state,
         });
       } catch {
         // Ignored
@@ -124,6 +205,11 @@ export class MockRealtimeHub {
   }
 
   untrackPresence(topic: string, clientId: string) {
+    const localMap = this.localTrackedPresences.get(topic);
+    if (localMap) {
+      localMap.delete(clientId);
+    }
+
     const topicPresences = this.presenceByTopic.get(topic);
     if (topicPresences) {
       topicPresences.delete(clientId);
@@ -132,8 +218,9 @@ export class MockRealtimeHub {
       if (this.crossTabChannel) {
         try {
           this.crossTabChannel.postMessage({
-            type: 'presence_sync',
+            type: 'presence_untrack',
             sourceTopic: topic,
+            clientId,
           });
         } catch {
           // Ignored

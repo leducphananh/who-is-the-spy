@@ -23,20 +23,30 @@ interface UserProfile {
 }
 
 export const App: React.FC = () => {
-  // Persistent User ID
+  // Persistent User ID (Session-based: allows multiple tabs on same browser to play independently)
   const [userId] = useState<string>(() => {
-    if (typeof localStorage !== 'undefined') {
-      const storedId = localStorage.getItem('spy_user_id');
+    if (typeof sessionStorage !== 'undefined') {
+      const storedId = sessionStorage.getItem('spy_user_id');
       if (storedId) return storedId;
       const newId = `usr_${Math.random().toString(36).substring(2, 9)}`;
-      localStorage.setItem('spy_user_id', newId);
+      sessionStorage.setItem('spy_user_id', newId);
       return newId;
     }
     return `usr_${Math.random().toString(36).substring(2, 9)}`;
   });
 
-  // Persistent User Profile
+  // Persistent User Profile (Session-based, fallback to localStorage if pre-seeded)
   const [profile, setProfile] = useState<UserProfile | null>(() => {
+    if (typeof sessionStorage !== 'undefined') {
+      const stored = sessionStorage.getItem('spy_user_profile');
+      if (stored) {
+        try {
+          return JSON.parse(stored) as UserProfile;
+        } catch {
+          // ignore
+        }
+      }
+    }
     if (typeof localStorage !== 'undefined') {
       const stored = localStorage.getItem('spy_user_profile');
       if (stored) {
@@ -86,8 +96,8 @@ export const App: React.FC = () => {
   const handleSaveProfile = (newProfile: UserProfile) => {
     setProfile(newProfile);
     setIsEditingProfile(false);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('spy_user_profile', JSON.stringify(newProfile));
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('spy_user_profile', JSON.stringify(newProfile));
     }
   };
 
