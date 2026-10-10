@@ -55,11 +55,22 @@ export type PlayerAction =
   | { type: 'PROCEED_ROUND'; playerId: string }
   | { type: 'REQUEST_RESYNC'; playerId: string };
 
+export const SPY_ACTIVE_SESSION_KEY = 'SPY_ACTIVE_SESSION';
+export const SPY_HOST_RAW_STATE_KEY = 'SPY_HOST_RAW_STATE';
+
 export interface ActiveSession {
   roomCode: string;
   userId: string;
   name: string;
   avatar: string;
+  isHost?: boolean | undefined;
+  joinedAt?: number | undefined;
+}
+
+export interface JoinRoomOptions {
+  joinedAt?: number | undefined;
+  isHost?: boolean | undefined;
+  rawGameState?: GameState | null | undefined;
 }
 
 export interface RoomStateSnapshot {

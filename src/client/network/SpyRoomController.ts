@@ -5,8 +5,9 @@ import type {
   SecretWordPayload,
   RoomStateSnapshot,
   PlayerAction,
+  JoinRoomOptions,
 } from './types.js';
-import { toPublicGameState } from './types.js';
+import { toPublicGameState, SPY_HOST_RAW_STATE_KEY } from './types.js';
 import type { GameState, GameConfig, WordPair } from '../../core/types.js';
 import {
   createInitialGame,
@@ -101,10 +102,61 @@ export class SpyRoomController {
   /**
    * Tham gia phòng chơi thông qua Room Code.
    */
-  public async joinRoom(roomCode: string, joinedAt?: number): Promise<void> {
+  public async joinRoom(
+    roomCode: string,
+    joinedAtOrOptions?: number | JoinRoomOptions
+  ): Promise<void> {
     try {
       this.roomCode = roomCode;
-      this.joinedAt = joinedAt ?? Date.now();
+
+      let joinedAt =
+        typeof joinedAtOrOptions === 'number'
+          ? joinedAtOrOptions
+          : joinedAtOrOptions?.joinedAt;
+      const isHostRestored =
+        typeof joinedAtOrOptions === 'object' ? joinedAtOrOptions.isHost : false;
+      const rawStateRestored =
+        typeof joinedAtOrOptions === 'object' ? joinedAtOrOptions.rawGameState : null;
+
+      let hostRaw: GameState | null = rawStateRestored ?? null;
+      if (!hostRaw && typeof sessionStorage !== 'undefined') {
+        const stored = sessionStorage.getItem(SPY_HOST_RAW_STATE_KEY);
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (parsed && typeof parsed === 'object') {
+              if (parsed.rawGameState && parsed.roomCode === roomCode && parsed.hostId === this.localPlayer.id) {
+                hostRaw = parsed.rawGameState as GameState;
+              } else if (!parsed.rawGameState && parsed.roomCode === roomCode) {
+                hostRaw = parsed as GameState;
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      if (hostRaw && hostRaw.roomCode !== roomCode) {
+        hostRaw = null;
+      }
+
+      if (isHostRestored || hostRaw) {
+        this.isHost = true;
+      }
+
+      if (hostRaw) {
+        this.rawGameState = hostRaw;
+        const meInRaw = hostRaw.players.find((p) => p.id === this.localPlayer.id);
+        if (meInRaw) {
+          this.mySecret = {
+            role: meInRaw.role,
+            word: meInRaw.word,
+          };
+        }
+      }
+
+      this.joinedAt = joinedAt ?? this.joinedAt ?? Date.now();
 
       // Khởi tạo Kênh Công Khai: game_room:<roomCode>
       this.publicChannel = this.supabase.channel(`game_room:${roomCode}`);
@@ -197,6 +249,26 @@ export class SpyRoomController {
       this.error = null;
       this.handlePresenceSync();
 
+      // Nếu Host F5 trở lại với rawGameState: lập tức đánh thức ván đấu và phát SYNC_STATE
+      if (this.isHost && this.rawGameState) {
+        this.isPausedForHostReconnect = false;
+        this.hostGraceSecondsRemaining = 0;
+        if (this.graceTimer) {
+          clearInterval(this.graceTimer);
+          this.graceTimer = null;
+        }
+
+        this.publicGameState = toPublicGameState(
+          this.rawGameState,
+          this.presenceList,
+          false,
+          0
+        );
+
+        this.startHeartbeat();
+        await this.broadcastPublicState();
+      }
+
       // Nếu phát hiện Host đang ở trong ván đấu active, chủ động gửi REQUEST_RESYNC
       const hostP = this.presenceList.find((p) => p.isHost);
       if (
@@ -220,6 +292,7 @@ export class SpyRoomController {
    */
   public async leaveRoom(): Promise<void> {
     this.stopHeartbeat();
+    this.clearHostRawState();
     if (this.graceTimer) {
       clearInterval(this.graceTimer);
       this.graceTimer = null;
@@ -252,54 +325,64 @@ export class SpyRoomController {
     if (!this.publicChannel) return;
 
     const presenceMap = this.publicChannel.presenceState();
-    const rawPresences: PlayerPresence[] = [];
+    const presenceById = new Map<string, PlayerPresence>();
 
     for (const key of Object.keys(presenceMap)) {
       const entries = presenceMap[key];
       if (entries && entries.length > 0) {
-        const item = entries[0] as unknown as PlayerPresence;
-        rawPresences.push(item);
+        for (const entry of entries) {
+          const item = entry as unknown as PlayerPresence;
+          if (!item || !item.id) continue;
+          const existing = presenceById.get(item.id);
+          if (existing) {
+            // Giữ joinedAt nhỏ nhất (thời điểm tham gia ban đầu)
+            const earliestJoinedAt = Math.min(existing.joinedAt, item.joinedAt);
+            // Lấy trạng thái kết nối mới nhất nhưng bảo toàn joinedAt ban đầu
+            presenceById.set(item.id, {
+              ...item,
+              joinedAt: earliestJoinedAt,
+            });
+          } else {
+            presenceById.set(item.id, item);
+          }
+        }
       }
     }
 
+    const rawPresences = Array.from(presenceById.values());
     // Sắp xếp người tham gia theo thời gian tham gia (joinedAt) tăng dần (FIFO)
     rawPresences.sort((a, b) => a.joinedAt - b.joinedAt);
 
     const previousHostId = this.presenceList.find((p) => p.isHost)?.id;
-    const newHostId = rawPresences[0]?.id;
+    const isGameActive = Boolean(
+      (this.rawGameState &&
+        this.rawGameState.phase !== 'LOBBY' &&
+        this.rawGameState.phase !== 'GAME_OVER') ||
+      (this.publicGameState &&
+        this.publicGameState.phase !== 'LOBBY' &&
+        this.publicGameState.phase !== 'GAME_OVER')
+    );
 
-    // Kiểm tra xem Host cũ có vừa rời khỏi phòng không
+    const hostInPresences = rawPresences.find((p) => p.isHost || p.id === previousHostId);
     const hostLeft = Boolean(previousHostId && !rawPresences.some((p) => p.id === previousHostId));
 
-    // Cập nhật danh sách presence mới
-    this.presenceList = rawPresences.map((p) => ({
-      ...p,
-      isHost: p.id === newHostId,
-    }));
+    if (this.isHost && this.rawGameState) {
+      // Bản thân là Host: giữ nguyên quyền Host
+      this.presenceList = rawPresences.map((p) => ({
+        ...p,
+        isHost: p.id === this.localPlayer.id,
+      }));
+      this.isHost = true;
+    } else if (isGameActive && (hostLeft || this.isPausedForHostReconnect)) {
+      // Đang trong ván đấu và Host rời phòng (hoặc đang trong Grace Period 30s):
+      // Tuyệt đối KHÔNG gán Host cho Guest khi 30s chưa hết!
+      this.isHost = false;
+      this.presenceList = rawPresences.map((p) => ({
+        ...p,
+        isHost: false,
+      }));
 
-    // Cập nhật quyền Host của bản thân
-    this.isHost = newHostId === this.localPlayer.id;
-
-    // Tự động kích hoạt requestResync nếu phát hiện Host đã vào game mà client chưa có state/secret
-    const currentHost = this.presenceList.find((p) => p.isHost);
-    if (
-      !this.isHost &&
-      currentHost?.gamePhase &&
-      currentHost.gamePhase !== 'LOBBY' &&
-      (!this.publicGameState || this.publicGameState.phase === 'LOBBY' || !this.mySecret)
-    ) {
-      this.requestResync();
-    }
-
-    // Xử lý khi Host rời phòng
-    if (hostLeft) {
-      const isGameActive =
-        this.publicGameState &&
-        this.publicGameState.phase !== 'LOBBY' &&
-        this.publicGameState.phase !== 'GAME_OVER';
-
-      if (isGameActive) {
-        // Trong ACTIVE GAME: bật Grace Period 30s
+      if (hostLeft && !this.isPausedForHostReconnect) {
         this.isPausedForHostReconnect = true;
         this.hostGraceSecondsRemaining = 30;
         this.startGraceTimer();
@@ -312,6 +395,42 @@ export class SpyRoomController {
           };
         }
       }
+    } else {
+      // Ở LOBBY hoặc ván đấu bình thường: Host là người có joinedAt sớm nhất (hoặc người giữ isHost)
+      const newHostId = hostInPresences?.id ?? rawPresences[0]?.id;
+      this.presenceList = rawPresences.map((p) => ({
+        ...p,
+        isHost: p.id === newHostId,
+      }));
+      this.isHost = newHostId === this.localPlayer.id;
+
+      // Nếu Host đã trở lại (trước đó bị pause): gỡ pause ngay
+      if (this.isPausedForHostReconnect && hostInPresences) {
+        this.isPausedForHostReconnect = false;
+        this.hostGraceSecondsRemaining = 0;
+        if (this.graceTimer) {
+          clearInterval(this.graceTimer);
+          this.graceTimer = null;
+        }
+        if (this.publicGameState) {
+          this.publicGameState = {
+            ...this.publicGameState,
+            isPausedForHostReconnect: false,
+            hostReconnectSecondsRemaining: 0,
+          };
+        }
+      }
+    }
+
+    // Tự động kích hoạt requestResync nếu phát hiện Host đã vào game mà client chưa có state/secret
+    const currentHost = this.presenceList.find((p) => p.isHost);
+    if (
+      !this.isHost &&
+      currentHost?.gamePhase &&
+      currentHost.gamePhase !== 'LOBBY' &&
+      (!this.publicGameState || this.publicGameState.phase === 'LOBBY' || !this.mySecret)
+    ) {
+      this.requestResync();
     }
 
     this.notify();
@@ -345,6 +464,7 @@ export class SpyRoomController {
       clearInterval(this.graceTimer);
       this.graceTimer = null;
     }
+    this.clearHostRawState();
     this.isPausedForHostReconnect = false;
     this.hostGraceSecondsRemaining = 0;
 
@@ -469,6 +589,7 @@ export class SpyRoomController {
 
     // Bắt đầu Heartbeat State Sync
     this.startHeartbeat();
+    this.saveHostRawState();
 
     this.publicGameState = toPublicGameState(
       this.rawGameState,
@@ -686,6 +807,9 @@ export class SpyRoomController {
 
       if (this.rawGameState.phase === 'GAME_OVER') {
         this.stopHeartbeat();
+        this.clearHostRawState();
+      } else {
+        this.saveHostRawState();
       }
 
       this.publicGameState = toPublicGameState(
@@ -727,6 +851,41 @@ export class SpyRoomController {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+  }
+
+  private saveHostRawState() {
+    if (this.isHost && this.rawGameState && typeof sessionStorage !== 'undefined') {
+      try {
+        sessionStorage.setItem(
+          SPY_HOST_RAW_STATE_KEY,
+          JSON.stringify({
+            roomCode: this.roomCode,
+            hostId: this.localPlayer.id,
+            rawGameState: this.rawGameState,
+          })
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  private clearHostRawState() {
+    if (typeof sessionStorage !== 'undefined') {
+      try {
+        const stored = sessionStorage.getItem(SPY_HOST_RAW_STATE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.roomCode === this.roomCode || !this.roomCode) {
+            sessionStorage.removeItem(SPY_HOST_RAW_STATE_KEY);
+          }
+        } else {
+          sessionStorage.removeItem(SPY_HOST_RAW_STATE_KEY);
+        }
+      } catch {
+        sessionStorage.removeItem(SPY_HOST_RAW_STATE_KEY);
+      }
     }
   }
 

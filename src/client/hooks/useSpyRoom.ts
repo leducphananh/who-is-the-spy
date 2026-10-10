@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useSyncExternalStore } from 'react';
 import type { SpyRoomController } from '../network/SpyRoomController.js';
-import type { RoomStateSnapshot } from '../network/types.js';
+import type { RoomStateSnapshot, JoinRoomOptions } from '../network/types.js';
 import type { GameConfig, WordPair } from '../../core/types.js';
 
 export interface UseSpyRoomResult extends RoomStateSnapshot {
@@ -14,7 +14,7 @@ export interface UseSpyRoomResult extends RoomStateSnapshot {
   castVote: (targetId: string) => Promise<void>;
   submitMrWhiteGuess: (guess: string) => Promise<void>;
   proceedToNextRound: () => Promise<void>;
-  joinRoom: (roomCode: string, joinedAt?: number) => Promise<void>;
+  joinRoom: (roomCode: string, joinedAtOrOptions?: number | JoinRoomOptions) => Promise<void>;
   leaveRoom: () => Promise<void>;
   requestResync: () => Promise<void>;
 }

@@ -15,10 +15,14 @@ import { MrWhiteModal } from './components/Game/MrWhiteModal.js';
 import { GameOverModal } from './components/Game/GameOverModal.js';
 import { HostReconnectOverlay } from './components/Game/HostReconnectOverlay.js';
 import { WordPackModal, type CustomWordPack } from './components/Lobby/WordPackModal.js';
-import type { GameConfig, WordPair } from '../core/types.js';
-import type { ActiveSession } from './network/types.js';
+import type { GameConfig, WordPair, GameState } from '../core/types.js';
+import {
+  SPY_ACTIVE_SESSION_KEY,
+  SPY_HOST_RAW_STATE_KEY,
+  type ActiveSession,
+} from './network/types.js';
 
-export const SPY_ACTIVE_SESSION_KEY = 'SPY_ACTIVE_SESSION';
+export { SPY_ACTIVE_SESSION_KEY };
 
 interface UserProfile {
   name: string;
@@ -118,9 +122,44 @@ export const App: React.FC = () => {
   // Tự động Reconnect vào phòng nếu phát hiện Active Session sau khi F5/Reload
   useEffect(() => {
     if (activeSession?.roomCode && !roomState.roomCode) {
-      roomState.joinRoom(activeSession.roomCode);
+      let rawGameState: GameState | null = null;
+      if (typeof sessionStorage !== 'undefined') {
+        const storedRaw = sessionStorage.getItem(SPY_HOST_RAW_STATE_KEY);
+        if (storedRaw) {
+          try {
+            rawGameState = JSON.parse(storedRaw) as GameState;
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      const isHost = activeSession.isHost || Boolean(rawGameState);
+      roomState.joinRoom(activeSession.roomCode, {
+        joinedAt: activeSession.joinedAt,
+        isHost,
+        rawGameState,
+      });
     }
   }, [activeSession?.roomCode, roomState.roomCode]);
+
+  // Đồng bộ trạng thái isHost vào activeSession trong sessionStorage khi có Host migration
+  useEffect(() => {
+    if (roomState.roomCode && typeof sessionStorage !== 'undefined') {
+      const stored = sessionStorage.getItem(SPY_ACTIVE_SESSION_KEY);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as ActiveSession;
+          if (parsed.isHost !== roomState.isHost) {
+            parsed.isHost = roomState.isHost;
+            sessionStorage.setItem(SPY_ACTIVE_SESSION_KEY, JSON.stringify(parsed));
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }, [roomState.roomCode, roomState.isHost]);
 
   const handleSaveProfile = (newProfile: UserProfile) => {
     setProfile(newProfile);
@@ -131,34 +170,47 @@ export const App: React.FC = () => {
   };
 
   const handleCreateRoom = async (code: string) => {
+    const now = Date.now();
     if (typeof sessionStorage !== 'undefined') {
       const sessionData: ActiveSession = {
         roomCode: code,
         userId,
         name: profile?.name || 'Mật Vụ',
         avatar: profile?.avatar || 'fox',
+        isHost: true,
+        joinedAt: now,
       };
       sessionStorage.setItem(SPY_ACTIVE_SESSION_KEY, JSON.stringify(sessionData));
     }
-    await roomState.joinRoom(code);
+    await roomState.joinRoom(code, {
+      joinedAt: now,
+      isHost: true,
+    });
   };
 
   const handleJoinRoom = async (code: string) => {
+    const now = Date.now();
     if (typeof sessionStorage !== 'undefined') {
       const sessionData: ActiveSession = {
         roomCode: code,
         userId,
         name: profile?.name || 'Mật Vụ',
         avatar: profile?.avatar || 'fox',
+        isHost: false,
+        joinedAt: now,
       };
       sessionStorage.setItem(SPY_ACTIVE_SESSION_KEY, JSON.stringify(sessionData));
     }
-    await roomState.joinRoom(code);
+    await roomState.joinRoom(code, {
+      joinedAt: now,
+      isHost: false,
+    });
   };
 
   const handleLeaveRoom = async () => {
     if (typeof sessionStorage !== 'undefined') {
       sessionStorage.removeItem(SPY_ACTIVE_SESSION_KEY);
+      sessionStorage.removeItem(SPY_HOST_RAW_STATE_KEY);
     }
     await roomState.leaveRoom();
   };
