@@ -4,6 +4,7 @@ import { Trophy, RotateCcw, Skull, Eye } from 'lucide-react';
 import type { GameWinner, Role } from '../../../core/types.js';
 import type { PublicPlayerState } from '../../network/types.js';
 import { AVATAR_OPTIONS, type AvatarOption } from '../Lobby/ProfileSetup.js';
+import { soundEffects } from '../../lib/soundEffects.js';
 
 export interface GameOverModalProps {
   winner: GameWinner;
@@ -19,6 +20,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   onPlayAgain,
 }) => {
   useEffect(() => {
+    soundEffects.playVictory();
     try {
       if (typeof window !== 'undefined') {
         confetti({

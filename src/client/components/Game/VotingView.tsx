@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Vote, CheckCircle2, Users, Target } from 'lucide-react';
 import type { PublicPlayerState } from '../../network/types.js';
 import { AVATAR_OPTIONS, type AvatarOption } from '../Lobby/ProfileSetup.js';
+import { soundEffects } from '../../lib/soundEffects.js';
 
 export interface VotingViewProps {
   players: PublicPlayerState[];
@@ -36,6 +37,7 @@ export const VotingView: React.FC<VotingViewProps> = ({
 
   const handleConfirmVote = () => {
     if (!selectedTargetId || hasVoted) return;
+    soundEffects.playTick();
     onCastVote(selectedTargetId);
   };
 

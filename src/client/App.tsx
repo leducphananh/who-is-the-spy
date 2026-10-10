@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Shield, Radio, AlertCircle } from 'lucide-react';
+import { Shield, Radio, AlertCircle, Volume2, VolumeX } from 'lucide-react';
 import { getSupabaseClient, isUsingRealSupabase } from './network/supabaseClient.js';
 import { SpyRoomController, type LocalPlayerInfo } from './network/SpyRoomController.js';
 import { useSpyRoom } from './hooks/useSpyRoom.js';
+import { soundEffects } from './lib/soundEffects.js';
 import { ProfileSetup } from './components/Lobby/ProfileSetup.js';
 import { RoomLobby } from './components/Lobby/RoomLobby.js';
 import { WaitingRoom } from './components/Lobby/WaitingRoom.js';
@@ -49,10 +50,17 @@ export const App: React.FC = () => {
   });
 
   const [isEditingProfile, setIsEditingProfile] = useState<boolean>(false);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => soundEffects.isSoundEnabled());
   const [gameConfig, setGameConfig] = useState<GameConfig>({
     spyCount: 1,
     hasMrWhite: false,
   });
+
+  const toggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    soundEffects.setSoundEnabled(next);
+  };
 
   // Supabase Client and Controller
   const supabase = useMemo(() => getSupabaseClient(userId), [userId]);
@@ -117,6 +125,18 @@ export const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleSound}
+              aria-label={soundEnabled ? 'Tắt âm thanh' : 'Bật âm thanh'}
+              className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-amber-400 hover:border-slate-700 transition-all shadow-sm"
+            >
+              {soundEnabled ? (
+                <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+              ) : (
+                <VolumeX className="w-3.5 h-3.5 text-slate-500" />
+              )}
+            </button>
             <span
               className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border ${
                 isRealCloud

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Mic, CheckCircle2, Clock, Volume2, ArrowRight, Eye } from 'lucide-react';
 import type { PublicPlayerState, SecretWordPayload } from '../../network/types.js';
 import { AVATAR_OPTIONS, type AvatarOption } from '../Lobby/ProfileSetup.js';
+import { soundEffects } from '../../lib/soundEffects.js';
 
 export interface DescribingViewProps {
   roundNumber: number;
@@ -26,9 +27,22 @@ export const DescribingView: React.FC<DescribingViewProps> = ({
   const currentDescriber = alivePlayers[currentDescriberIndex] || alivePlayers[0];
   const isMyTurn = currentDescriber?.id === myUserId;
 
+  const prevIsMyTurn = useRef(false);
+  useEffect(() => {
+    if (isMyTurn && !prevIsMyTurn.current) {
+      soundEffects.playTurnAlert();
+    }
+    prevIsMyTurn.current = isMyTurn;
+  }, [isMyTurn]);
+
   const getAvatarEmoji = (avatarId: string) => {
     const found = AVATAR_OPTIONS.find((a: AvatarOption) => a.id === avatarId);
     return found ? found.emoji : '🕵️';
+  };
+
+  const handleNextClick = () => {
+    soundEffects.playTick();
+    onNextDescribe();
   };
 
   return (
@@ -169,7 +183,7 @@ export const DescribingView: React.FC<DescribingViewProps> = ({
       {isMyTurn && (
         <div className="pt-2">
           <button
-            onClick={onNextDescribe}
+            onClick={handleNextClick}
             className="w-full py-3.5 px-4 rounded-xl font-bold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 active:scale-[0.98] transition-all cursor-pointer"
           >
             <span>Hoàn thành mô tả & Chuyển lượt</span>

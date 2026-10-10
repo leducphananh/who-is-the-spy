@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Lock, Unlock, Eye, CheckCircle2, ShieldCheck, Flame } from 'lucide-react';
 import type { SecretWordPayload } from '../../network/types.js';
+import { soundEffects } from '../../lib/soundEffects.js';
 
 export interface SecretWordCardProps {
   secret: SecretWordPayload | null;
@@ -17,6 +18,7 @@ export const SecretWordCard: React.FC<SecretWordCardProps> = ({
 
   const handlePointerDown = useCallback(() => {
     setIsRevealed(true);
+    soundEffects.playRoleReveal();
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
         navigator.vibrate(40);

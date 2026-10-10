@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Skull, AlertTriangle, ArrowRight, BarChart3 } from 'lucide-react';
 import type { VoteResult } from '../../../core/types.js';
 import type { PublicPlayerState } from '../../network/types.js';
 import { AVATAR_OPTIONS, type AvatarOption } from '../Lobby/ProfileSetup.js';
+import { soundEffects } from '../../lib/soundEffects.js';
 
 export interface VoteResultModalProps {
   result: VoteResult;
@@ -17,6 +18,14 @@ export const VoteResultModal: React.FC<VoteResultModalProps> = ({
   isHost,
   onProceed,
 }) => {
+  useEffect(() => {
+    if (result.isTie) {
+      soundEffects.playTie();
+    } else if (result.eliminatedPlayerId) {
+      soundEffects.playGavel();
+    }
+  }, [result]);
+
   const eliminatedPlayer = result.eliminatedPlayerId
     ? players.find((p) => p.id === result.eliminatedPlayerId)
     : null;
