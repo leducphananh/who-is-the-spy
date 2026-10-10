@@ -106,9 +106,11 @@ test.describe('Ai Là Gián Điệp - Full 4-Player Match E2E Flow', () => {
     // Cả 4 trang hiển thị Modal kết quả bỏ phiếu (VoteResultModal) hoặc Màn hình kết thúc trận đấu (GameOverModal)
     for (const page of allPages) {
       const outcomeLocator = page
-        .locator('button:has-text("TIẾP TỤC")')
-        .or(page.locator('button:has-text("BẮT ĐẦU VÁN MỚI")'))
-        .or(page.locator('text=BỊ TRỤC XUẤT'));
+        .locator('text=CHIẾN THẮNG')
+        .or(page.locator('text=BỊ TRỤC XUẤT'))
+        .or(page.locator('text=HÒA PHIẾU'))
+        .or(page.locator('button:has-text("TIẾP TỤC")'))
+        .or(page.locator('button:has-text("CHƠI LẠI VÁN MỚI")'));
       await expect(outcomeLocator.first()).toBeVisible({ timeout: 10000 });
     }
 
