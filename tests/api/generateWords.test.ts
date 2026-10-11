@@ -133,6 +133,53 @@ describe('Vercel Serverless Function: /api/generate-words', () => {
     expect(result.category).toBe('Công nghệ');
   });
 
+  it('callGeminiForWords: tự động fallback sang model tiếp theo khi model đầu tiên gặp HTTP 404', async () => {
+    const mockGeminiResponse = {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: JSON.stringify({
+                  civilianWord: 'Trà chanh',
+                  spyWord: 'Trà tắc',
+                  category: 'Đồ uống vỉa hè',
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const mockFetch = vi
+      .fn()
+      // Lần gọi thứ 1 (gemini-2.5-flash) gặp lỗi 404
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () => 'Model not found',
+      } as Response)
+      // Lần gọi thứ 2 (gemini-2.0-flash) thành công 200
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockGeminiResponse,
+      } as Response);
+
+    globalThis.fetch = mockFetch;
+
+    const result = await callGeminiForWords('key-test', 'Đồ uống');
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('gemini-2.5-flash');
+    expect(mockFetch.mock.calls[1]?.[0]).toContain('gemini-2.0-flash');
+
+    expect(result.civilianWord).toBe('Trà chanh');
+    expect(result.spyWord).toBe('Trà tắc');
+    expect(result.category).toBe('Đồ uống vỉa hè');
+  });
+
   it('trả về HTTP 500 khi Gemini API trả về lỗi', async () => {
     process.env.GEMINI_API_KEY = 'invalid-key';
 

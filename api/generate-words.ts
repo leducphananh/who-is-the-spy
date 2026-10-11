@@ -8,6 +8,15 @@ export interface GeneratedWordResult {
 }
 
 /**
+ * Danh sách model Gemini theo thứ tự ưu tiên và fallback
+ */
+export const CANDIDATE_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash-latest',
+];
+
+/**
  * Hàm core gọi Google Gemini API trực tiếp từ server
  */
 export async function callGeminiForWords(
@@ -34,69 +43,92 @@ Yêu cầu chất lượng nghiêm ngặt:
   "category": "tên chủ đề ngắn gọn"
 }`;
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(
-    apiKey.trim()
-  )}`;
+  let lastError: Error | null = null;
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: prompt }],
+  for (const model of CANDIDATE_MODELS) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+      apiKey.trim()
+    )}`;
+
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.8,
-      },
-    }),
-  });
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.8,
+          },
+        }),
+      });
+    } catch (fetchErr) {
+      lastError = new Error(
+        `Không thể kết nối đến Gemini AI (${fetchErr instanceof Error ? fetchErr.message : 'Lỗi mạng'}).`
+      );
+      break;
+    }
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API error (HTTP ${response.status}): ${errorText}`);
+    if (response.status === 404) {
+      const errorText = await response.text();
+      console.warn(
+        `[Gemini Model 404] Model '${model}' không khả dụng (HTTP 404): ${errorText}. Thử fallback model tiếp theo...`
+      );
+      lastError = new Error(`Gemini API model '${model}' không tìm thấy (HTTP 404): ${errorText}`);
+      continue;
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error (HTTP ${response.status}): ${errorText}`);
+    }
+
+    const data = (await response.json()) as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ text?: string }>;
+        };
+      }>;
+    };
+
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawText) {
+      throw new Error('AI không trả về nội dung từ khóa hợp lệ.');
+    }
+
+    let cleaned = rawText.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    }
+
+    let parsed: { civilianWord?: string; spyWord?: string; category?: string };
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      throw new Error('Định dạng phản hồi từ AI không phải JSON hợp lệ.');
+    }
+
+    if (!parsed.civilianWord || !parsed.spyWord) {
+      throw new Error('AI không tạo đủ từ cho Dân Thường và Gián Điệp.');
+    }
+
+    return {
+      id: `ai_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      civilianWord: parsed.civilianWord.trim(),
+      spyWord: parsed.spyWord.trim(),
+      category: parsed.category?.trim() || trimmedTopic || 'AI Gợi ý',
+    };
   }
 
-  const data = (await response.json()) as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{ text?: string }>;
-      };
-    }>;
-  };
-
-  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!rawText) {
-    throw new Error('AI không trả về nội dung từ khóa hợp lệ.');
-  }
-
-  let cleaned = rawText.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  }
-
-  let parsed: { civilianWord?: string; spyWord?: string; category?: string };
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    throw new Error('Định dạng phản hồi từ AI không phải JSON hợp lệ.');
-  }
-
-  if (!parsed.civilianWord || !parsed.spyWord) {
-    throw new Error('AI không tạo đủ từ cho Dân Thường và Gián Điệp.');
-  }
-
-  return {
-    id: `ai_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    civilianWord: parsed.civilianWord.trim(),
-    spyWord: parsed.spyWord.trim(),
-    category: parsed.category?.trim() || trimmedTopic || 'AI Gợi ý',
-  };
+  throw lastError || new Error('Tất cả các model Gemini đều không khả dụng.');
 }
 
 /**

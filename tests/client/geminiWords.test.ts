@@ -85,4 +85,18 @@ describe('Client Gemini AI Service (geminiWords.ts)', () => {
       /máy chủ không trả về đủ từ/i
     );
   });
+
+  it('generateCustomWordPair: hiển thị thông báo lỗi khi máy chủ proxy trả về lỗi model 404/500', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        error: 'Không thể tạo gợi ý từ khóa: Gemini API model gemini-2.5-flash không khả dụng',
+      }),
+    } as Response);
+
+    await expect(generateCustomWordPair('Ẩm thực')).rejects.toThrowError(
+      /gemini-2.5-flash/i
+    );
+  });
 });
