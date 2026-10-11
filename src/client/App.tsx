@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Shield, Radio, AlertCircle, Volume2, VolumeX } from 'lucide-react';
+import { Shield, Radio, AlertCircle, Volume2, VolumeX, LogOut } from 'lucide-react';
 import { getSupabaseClient, isUsingRealSupabase } from './network/supabaseClient.js';
 import { SpyRoomController, type LocalPlayerInfo } from './network/SpyRoomController.js';
 import { useSpyRoom } from './hooks/useSpyRoom.js';
@@ -31,7 +31,7 @@ interface UserProfile {
 
 export const App: React.FC = () => {
   // Khởi tạo từ Active Session nếu F5/Reload trang
-  const [activeSession] = useState<ActiveSession | null>(() => {
+  const [activeSession, setActiveSession] = useState<ActiveSession | null>(() => {
     if (typeof sessionStorage !== 'undefined') {
       const stored = sessionStorage.getItem(SPY_ACTIVE_SESSION_KEY);
       if (stored) {
@@ -127,9 +127,20 @@ export const App: React.FC = () => {
         const storedRaw = sessionStorage.getItem(SPY_HOST_RAW_STATE_KEY);
         if (storedRaw) {
           try {
-            rawGameState = JSON.parse(storedRaw) as GameState;
+            const parsed = JSON.parse(storedRaw);
+            if (parsed && typeof parsed === 'object') {
+              if (parsed.rawGameState && typeof parsed.rawGameState === 'object' && Array.isArray(parsed.rawGameState.players)) {
+                rawGameState = parsed.rawGameState as GameState;
+              } else if (Array.isArray(parsed.players)) {
+                rawGameState = parsed as GameState;
+              } else {
+                sessionStorage.removeItem(SPY_HOST_RAW_STATE_KEY);
+              }
+            } else {
+              sessionStorage.removeItem(SPY_HOST_RAW_STATE_KEY);
+            }
           } catch {
-            // ignore
+            sessionStorage.removeItem(SPY_HOST_RAW_STATE_KEY);
           }
         }
       }
@@ -171,17 +182,18 @@ export const App: React.FC = () => {
 
   const handleCreateRoom = async (code: string) => {
     const now = Date.now();
+    const sessionData: ActiveSession = {
+      roomCode: code,
+      userId,
+      name: profile?.name || 'Mật Vụ',
+      avatar: profile?.avatar || 'fox',
+      isHost: true,
+      joinedAt: now,
+    };
     if (typeof sessionStorage !== 'undefined') {
-      const sessionData: ActiveSession = {
-        roomCode: code,
-        userId,
-        name: profile?.name || 'Mật Vụ',
-        avatar: profile?.avatar || 'fox',
-        isHost: true,
-        joinedAt: now,
-      };
       sessionStorage.setItem(SPY_ACTIVE_SESSION_KEY, JSON.stringify(sessionData));
     }
+    setActiveSession(sessionData);
     await roomState.joinRoom(code, {
       joinedAt: now,
       isHost: true,
@@ -190,17 +202,18 @@ export const App: React.FC = () => {
 
   const handleJoinRoom = async (code: string) => {
     const now = Date.now();
+    const sessionData: ActiveSession = {
+      roomCode: code,
+      userId,
+      name: profile?.name || 'Mật Vụ',
+      avatar: profile?.avatar || 'fox',
+      isHost: false,
+      joinedAt: now,
+    };
     if (typeof sessionStorage !== 'undefined') {
-      const sessionData: ActiveSession = {
-        roomCode: code,
-        userId,
-        name: profile?.name || 'Mật Vụ',
-        avatar: profile?.avatar || 'fox',
-        isHost: false,
-        joinedAt: now,
-      };
       sessionStorage.setItem(SPY_ACTIVE_SESSION_KEY, JSON.stringify(sessionData));
     }
+    setActiveSession(sessionData);
     await roomState.joinRoom(code, {
       joinedAt: now,
       isHost: false,
@@ -208,6 +221,7 @@ export const App: React.FC = () => {
   };
 
   const handleLeaveRoom = async () => {
+    setActiveSession(null);
     if (typeof sessionStorage !== 'undefined') {
       sessionStorage.removeItem(SPY_ACTIVE_SESSION_KEY);
       sessionStorage.removeItem(SPY_HOST_RAW_STATE_KEY);
@@ -218,8 +232,8 @@ export const App: React.FC = () => {
   const isRealCloud = isUsingRealSupabase();
 
   // Find current user player state in publicGameState
-  const myPlayer = roomState.publicGameState?.players.find((p) => p.id === userId);
-  const mrWhitePlayer = roomState.publicGameState?.players.find(
+  const myPlayer = roomState.publicGameState?.players?.find((p) => p.id === userId);
+  const mrWhitePlayer = roomState.publicGameState?.players?.find(
     (p) => p.id === roomState.publicGameState?.lastVoteResult?.eliminatedPlayerId
   );
 
@@ -263,6 +277,18 @@ export const App: React.FC = () => {
               <Radio className="w-3 h-3 animate-pulse" />
               <span>{isRealCloud ? 'Supabase Cloud' : 'Multi-Tab Hub'}</span>
             </span>
+
+            {roomState.roomCode && (
+              <button
+                type="button"
+                onClick={handleLeaveRoom}
+                aria-label="Rời phòng"
+                className="p-1.5 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-300 hover:text-rose-100 hover:bg-rose-900/60 transition-all shadow-sm cursor-pointer"
+                title="Rời phòng"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+              </button>
+            )}
           </div>
         </header>
 

@@ -100,7 +100,8 @@ export function toPublicGameState(
   const avatarMap = new Map(presences.map((p) => [p.id, p.avatar]));
   const isGameOver = state.phase === 'GAME_OVER';
 
-  const publicPlayers: PublicPlayerState[] = state.players.map((p) => {
+  const playersList = Array.isArray(state?.players) ? state.players : [];
+  const publicPlayers: PublicPlayerState[] = playersList.map((p) => {
     const publicPlayer: PublicPlayerState = {
       id: p.id,
       name: p.name,

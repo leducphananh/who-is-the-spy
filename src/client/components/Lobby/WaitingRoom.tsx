@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Crown, Copy, Check, Users, Settings, LogOut, Play, ShieldAlert, Sparkles, BookOpen, Edit3, Loader2, AlertCircle, Lock } from 'lucide-react';
 import type { PlayerPresence } from '../../network/types.js';
 import type { GameConfig, WordPair } from '../../../core/types.js';
+import { WORD_PAIRS } from '../../../core/wordBank.js';
 import { AVATAR_OPTIONS, type AvatarOption } from './ProfileSetup.js';
 import { generateCustomWordPair } from '../../lib/geminiWords.js';
 
@@ -307,7 +308,7 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
           <div>
             <div className="text-xs font-medium text-slate-200">Gói từ khóa bí mật</div>
             <div className="text-[11px] text-amber-400 font-semibold truncate max-w-[180px]">
-              {activePackName || 'Kho từ mặc định (36 cặp)'}
+              {activePackName || `Kho từ mặc định (${WORD_PAIRS.length} cặp)`}
             </div>
           </div>
           {isHost ? (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Plus, Trash2, X, CheckCircle2, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import type { WordPair } from '../../../core/types.js';
+import { WORD_PAIRS } from '../../../core/wordBank.js';
 import { generateCustomWordPair } from '../../lib/geminiWords.js';
 
 export interface CustomWordPack {
@@ -199,7 +200,7 @@ export const WordPackModal: React.FC<WordPackModalProps> = ({
         <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/50 border border-slate-800">
           <div>
             <div className="text-xs font-bold text-slate-200">Kho từ mặc định của hệ thống</div>
-            <div className="text-[11px] text-slate-400">36 cặp từ tiếng Việt phong phú</div>
+            <div className="text-[11px] text-slate-400">{WORD_PAIRS.length} cặp từ tiếng Việt phong phú</div>
           </div>
           <button
             type="button"

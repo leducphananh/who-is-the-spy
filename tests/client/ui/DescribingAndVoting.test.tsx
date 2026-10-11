@@ -95,6 +95,65 @@ describe('DescribingView, VotingView & VoteResultModal Components', () => {
       );
       expect(nextBtn).toBeUndefined();
     });
+
+    it('hỗ trợ mở Modal Xem lại từ khóa theo chuẩn Separated Thumb Zone (pointerDown reveal, pointerUp hide)', async () => {
+      const root = createRoot(container);
+      await act(async () => {
+        root.render(
+          <DescribingView
+            roundNumber={1}
+            currentDescriberIndex={0}
+            players={mockPlayers}
+            myUserId="p1"
+            mySecret={{ role: 'CIVILIAN', word: 'Phở bò' }}
+            onNextDescribe={vi.fn()}
+          />
+        );
+      });
+
+      // Mở modal xem lại từ khóa
+      const openBtn = container.querySelector('[data-testid="open-peek-modal-btn"]') as HTMLElement;
+      expect(openBtn).not.toBeNull();
+
+      await act(async () => {
+        openBtn.click();
+      });
+
+      // Ban đầu từ khóa bị che giấu bảo mật
+      const displayZone = container.querySelector('[data-testid="peek-display-zone"]');
+      expect(displayZone?.textContent).toContain('TUYỆT MẬT');
+      expect(displayZone?.textContent).not.toContain('Phở bò');
+
+      // Vùng cảm ứng phía dưới màn hình (Thumb zone)
+      const thumbTouchZone = container.querySelector('[data-testid="peek-thumb-touch-zone"]') as HTMLElement;
+      expect(thumbTouchZone).not.toBeNull();
+      expect(thumbTouchZone.textContent).toContain('Nhấn và giữ tại đây để xem lại');
+
+      // Nhấn giữ (onPointerDown) -> hiển thị từ khóa ở phía trên
+      await act(async () => {
+        thumbTouchZone.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      });
+
+      const revealedWordText = container.querySelector('[data-testid="peek-secret-word-text"]');
+      expect(revealedWordText?.textContent).toBe('Phở bò');
+      expect(displayZone?.textContent).toContain('DÂN THƯỜNG');
+
+      // Nhả ngón tay (onPointerUp) -> che giấu lại ngay lập tức
+      await act(async () => {
+        thumbTouchZone.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+      });
+
+      expect(container.querySelector('[data-testid="peek-secret-word-text"]')).toBeNull();
+      expect(displayZone?.textContent).toContain('TUYỆT MẬT');
+
+      // Đóng modal
+      const closeBtn = container.querySelector('[data-testid="close-peek-modal-btn"]') as HTMLElement;
+      await act(async () => {
+        closeBtn.click();
+      });
+
+      expect(container.querySelector('[data-testid="peek-thumb-touch-zone"]')).toBeNull();
+    });
   });
 
   describe('VotingView', () => {

@@ -7,7 +7,7 @@ import type {
   PlayerAction,
   JoinRoomOptions,
 } from './types.js';
-import { toPublicGameState, SPY_HOST_RAW_STATE_KEY } from './types.js';
+import { toPublicGameState, SPY_HOST_RAW_STATE_KEY, SPY_ACTIVE_SESSION_KEY } from './types.js';
 import type { GameState, GameConfig, WordPair } from '../../core/types.js';
 import {
   createInitialGame,
@@ -146,8 +146,23 @@ export class SpyRoomController {
       }
 
       if (hostRaw) {
+        // Đảm bảo hostRaw.players luôn là mảng hợp lệ, tránh crash "Cannot read properties of undefined (reading 'find')"
+        if (!Array.isArray(hostRaw.players)) {
+          hostRaw.players = [
+            {
+              id: this.localPlayer.id,
+              name: this.localPlayer.name,
+              role: 'CIVILIAN',
+              word: '',
+              isAlive: true,
+              hasVoted: false,
+              voteTargetId: null,
+            },
+          ];
+        }
+
         this.rawGameState = hostRaw;
-        const meInRaw = hostRaw.players.find((p) => p.id === this.localPlayer.id);
+        const meInRaw = hostRaw.players?.find((p) => p.id === this.localPlayer.id);
         if (meInRaw) {
           this.mySecret = {
             role: meInRaw.role,
@@ -251,6 +266,33 @@ export class SpyRoomController {
 
       // Nếu Host F5 trở lại với rawGameState: lập tức đánh thức ván đấu và phát SYNC_STATE
       if (this.isHost && this.rawGameState) {
+        // Đảm bảo rawGameState.players không bị khuyết thiếu khi Host reconnect
+        if (!Array.isArray(this.rawGameState.players) || this.rawGameState.players.length === 0) {
+          if (this.presenceList.length > 0) {
+            this.rawGameState.players = this.presenceList.map((p) => ({
+              id: p.id,
+              name: p.name,
+              role: 'CIVILIAN',
+              word: '',
+              isAlive: p.isAlive ?? true,
+              hasVoted: false,
+              voteTargetId: null,
+            }));
+          } else {
+            this.rawGameState.players = [
+              {
+                id: this.localPlayer.id,
+                name: this.localPlayer.name,
+                role: 'CIVILIAN',
+                word: '',
+                isAlive: true,
+                hasVoted: false,
+                voteTargetId: null,
+              },
+            ];
+          }
+        }
+
         this.isPausedForHostReconnect = false;
         this.hostGraceSecondsRemaining = 0;
         if (this.graceTimer) {
@@ -298,15 +340,45 @@ export class SpyRoomController {
       this.graceTimer = null;
     }
 
+    if (typeof sessionStorage !== 'undefined') {
+      try {
+        sessionStorage.removeItem(SPY_ACTIVE_SESSION_KEY);
+        sessionStorage.removeItem(SPY_HOST_RAW_STATE_KEY);
+      } catch {
+        // ignore
+      }
+    }
+
+    const withTimeout = (p: Promise<unknown>, ms: number) =>
+      Promise.race([
+        p,
+        new Promise<void>((resolve) => setTimeout(resolve, ms)),
+      ]);
+
     if (this.publicChannel) {
-      await this.publicChannel.untrack();
-      await this.publicChannel.unsubscribe();
-      this.publicChannel = null;
+      try {
+        await withTimeout(
+          Promise.allSettled([
+            this.publicChannel.untrack(),
+            this.publicChannel.unsubscribe(),
+          ]),
+          500
+        );
+      } catch {
+        // ignore
+      } finally {
+        this.publicChannel = null;
+      }
     }
 
     if (this.privateChannel) {
-      await this.privateChannel.unsubscribe();
-      this.privateChannel = null;
+      try {
+        await withTimeout(this.privateChannel.unsubscribe(), 500);
+      } catch {
+        // ignore
+      } finally {
+        this.privateChannel = null;
+      }
     }
 
     this.roomCode = '';
@@ -565,7 +637,7 @@ export class SpyRoomController {
     this.rawGameState = startDescribing(this.rawGameState);
 
     // Phân phát từ khóa bí mật qua Kênh Cá Nhân (Zero-Knowledge)
-    for (const p of this.rawGameState.players) {
+    for (const p of (this.rawGameState.players || [])) {
       const secret: SecretWordPayload = {
         role: p.role,
         word: p.word,
@@ -732,7 +804,7 @@ export class SpyRoomController {
       switch (action.type) {
         case 'REQUEST_RESYNC': {
           await this.broadcastPublicState();
-          const targetPlayer = this.rawGameState.players.find(
+          const targetPlayer = this.rawGameState.players?.find(
             (p) => p.id === action.playerId
           );
           if (targetPlayer) {
@@ -760,7 +832,7 @@ export class SpyRoomController {
 
         case 'NEXT_DESCRIBE': {
           const currentDescriber =
-            this.rawGameState.players[this.rawGameState.currentDescriberIndex];
+            this.rawGameState.players?.[this.rawGameState.currentDescriberIndex];
           // Chỉ người đang có lượt mới được gọi nextTurn
           if (currentDescriber?.id !== action.playerId) {
             return;
@@ -779,8 +851,8 @@ export class SpyRoomController {
           );
 
           // Nếu tất cả người chơi còn sống đã vote -> tự động tallyVotes
-          const alivePlayers = this.rawGameState.players.filter((p) => p.isAlive);
-          const allVoted = alivePlayers.every((p) => p.hasVoted);
+          const alivePlayers = (this.rawGameState.players || []).filter((p) => p.isAlive);
+          const allVoted = alivePlayers.length > 0 && alivePlayers.every((p) => p.hasVoted);
           if (allVoted) {
             const tallyResult = tallyVotes(this.rawGameState);
             this.rawGameState = tallyResult.newState;

@@ -4,6 +4,7 @@ import {
   createMockSupabaseClient,
 } from './mockSupabase.js';
 import { SpyRoomController } from '../../src/client/network/SpyRoomController.js';
+import { SPY_ACTIVE_SESSION_KEY, SPY_HOST_RAW_STATE_KEY } from '../../src/client/network/types.js';
 import type { GameState } from '../../src/core/types.js';
 
 describe('Duplicate Presence Deduplication & Host F5 Reconnect Flow', () => {
@@ -131,5 +132,70 @@ describe('Duplicate Presence Deduplication & Host F5 Reconnect Flow', () => {
     expect(guestUpdatedSnapshot.publicGameState?.isPausedForHostReconnect).toBe(false);
     expect(guestUpdatedSnapshot.publicGameState?.phase).toBe('DESCRIBING');
     expect(guestUpdatedSnapshot.isHost).toBe(false);
+  });
+
+  it('Host F5 với storage bị khuyết thiếu players: không gây crash Cannot read properties of undefined (reading find)', async () => {
+    const hub = new MockRealtimeHub();
+    const c1 = createMockSupabaseClient(hub, 'host-1');
+    const host = new SpyRoomController(c1, { id: 'host-1', name: 'Host Cáo' });
+
+    // Giả lập storage bị lỗi/khuyết thiếu trường players
+    const corruptedRawState = {
+      roomCode: 'ROOM_CORRUPT',
+      phase: 'DESCRIBING',
+      roundNumber: 1,
+      currentDescriberIndex: 0,
+      config: { spyCount: 1, hasMrWhite: false },
+      winner: null,
+      // players bị thiếu hoàn toàn (undefined)
+    } as unknown as GameState;
+
+    // Phải joinRoom an toàn mà không throw TypeError: Cannot read properties of undefined (reading 'find')
+    await expect(
+      host.joinRoom('ROOM_CORRUPT', {
+        joinedAt: 100,
+        isHost: true,
+        rawGameState: corruptedRawState,
+      })
+    ).resolves.not.toThrow();
+
+    const snapshot = host.getSnapshot();
+    expect(snapshot.isConnected).toBe(true);
+    expect(snapshot.isHost).toBe(true);
+    expect(snapshot.publicGameState).toBeDefined();
+    // rawGameState.players được tự động phục hồi an toàn
+    const restoredRaw = host.getRawGameState();
+    expect(Array.isArray(restoredRaw?.players)).toBe(true);
+    expect(restoredRaw?.players.length).toBeGreaterThan(0);
+  });
+
+  it('leaveRoom() xóa sạch session storage và đưa toàn bộ state về rỗng/null', async () => {
+    const hub = new MockRealtimeHub();
+    const client = createMockSupabaseClient(hub, 'host-1');
+    const controller = new SpyRoomController(client, { id: 'host-1', name: 'Host Cáo' });
+
+    // Giả lập sessionStorage
+    sessionStorage.setItem(SPY_ACTIVE_SESSION_KEY, JSON.stringify({ roomCode: 'ROOM_LEAVE', userId: 'host-1' }));
+    sessionStorage.setItem(SPY_HOST_RAW_STATE_KEY, JSON.stringify({ roomCode: 'ROOM_LEAVE', hostId: 'host-1' }));
+
+    await controller.joinRoom('ROOM_LEAVE', { isHost: true });
+    expect(controller.getSnapshot().isConnected).toBe(true);
+    expect(controller.getSnapshot().roomCode).toBe('ROOM_LEAVE');
+
+    // Rời phòng
+    await controller.leaveRoom();
+
+    const snapshot = controller.getSnapshot();
+    expect(snapshot.isConnected).toBe(false);
+    expect(snapshot.roomCode).toBe('');
+    expect(snapshot.isHost).toBe(false);
+    expect(snapshot.presenceList).toHaveLength(0);
+    expect(snapshot.publicGameState).toBeNull();
+    expect(snapshot.mySecret).toBeNull();
+    expect(controller.getRawGameState()).toBeNull();
+
+    // SessionStorage phải được xóa sạch
+    expect(sessionStorage.getItem(SPY_ACTIVE_SESSION_KEY)).toBeNull();
+    expect(sessionStorage.getItem(SPY_HOST_RAW_STATE_KEY)).toBeNull();
   });
 });
