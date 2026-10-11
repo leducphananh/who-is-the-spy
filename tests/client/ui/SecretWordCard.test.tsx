@@ -57,7 +57,13 @@ describe('SecretWordCard Component', () => {
       cardArea.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
     });
     expect(container.textContent).toContain('Cà phê sữa');
-    expect(container.textContent).toContain('DÂN THƯỜNG');
+    expect(container.textContent).toContain('MẬT THƯ BÍ MẬT');
+    expect(container.textContent).not.toContain('Dân thường');
+    expect(container.textContent).not.toContain('DÂN THƯỜNG');
+    expect(container.textContent).not.toContain('Gián điệp');
+    expect(container.textContent).not.toContain('GIÁN ĐIỆP');
+    expect(container.textContent).not.toContain('Civilian');
+    expect(container.textContent).not.toContain('Spy');
 
     // Trigger pointerup
     await act(async () => {
@@ -65,6 +71,40 @@ describe('SecretWordCard Component', () => {
     });
     expect(container.textContent).not.toContain('Cà phê sữa');
     expect(container.textContent).toContain('TUYỆT MẬT');
+  });
+
+  it('tuyệt đối không hiển thị vai trò Dân thường hay Gián điệp cho cả người chơi Civilian và Spy khi mở từ khóa', async () => {
+    // 1. Kiểm tra với Civilian
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<SecretWordCard secret={civilianSecret} />);
+    });
+    const cardArea = container.querySelector('[data-testid="secret-card-area"]') as HTMLElement;
+    await act(async () => {
+      cardArea.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    expect(container.textContent).toContain('Cà phê sữa');
+    expect(container.textContent).not.toContain('Dân thường');
+    expect(container.textContent).not.toContain('DÂN THƯỜNG');
+    expect(container.textContent).not.toContain('Gián điệp');
+    expect(container.textContent).not.toContain('GIÁN ĐIỆP');
+    expect(container.textContent).not.toContain('Civilian');
+    expect(container.textContent).not.toContain('Spy');
+
+    // 2. Kiểm tra với Spy
+    await act(async () => {
+      root.render(<SecretWordCard secret={spySecret} />);
+    });
+    await act(async () => {
+      cardArea.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    expect(container.textContent).toContain('Bạc xỉu');
+    expect(container.textContent).not.toContain('Dân thường');
+    expect(container.textContent).not.toContain('DÂN THƯỜNG');
+    expect(container.textContent).not.toContain('Gián điệp');
+    expect(container.textContent).not.toContain('GIÁN ĐIỆP');
+    expect(container.textContent).not.toContain('Civilian');
+    expect(container.textContent).not.toContain('Spy');
   });
 
   it('hiển thị hướng dẫn đặc biệt cho Mr. White khi reveal', async () => {

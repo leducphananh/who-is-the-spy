@@ -136,7 +136,13 @@ describe('DescribingView, VotingView & VoteResultModal Components', () => {
 
       const revealedWordText = container.querySelector('[data-testid="peek-secret-word-text"]');
       expect(revealedWordText?.textContent).toBe('Phở bò');
-      expect(displayZone?.textContent).toContain('DÂN THƯỜNG');
+      expect(displayZone?.textContent).toContain('TỪ KHÓA BÍ MẬT');
+      expect(displayZone?.textContent).not.toContain('Dân thường');
+      expect(displayZone?.textContent).not.toContain('DÂN THƯỜNG');
+      expect(displayZone?.textContent).not.toContain('Gián điệp');
+      expect(displayZone?.textContent).not.toContain('GIÁN ĐIỆP');
+      expect(displayZone?.textContent).not.toContain('Civilian');
+      expect(displayZone?.textContent).not.toContain('Spy');
 
       // Nhả ngón tay (onPointerUp) -> che giấu lại ngay lập tức
       await act(async () => {

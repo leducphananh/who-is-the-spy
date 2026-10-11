@@ -41,26 +41,7 @@ export const SecretWordCard: React.FC<SecretWordCardProps> = ({
     );
   }
 
-  const roleMeta = {
-    CIVILIAN: {
-      name: 'DÂN THƯỜNG',
-      color: 'text-cyan-400',
-      badgeBg: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300',
-      hint: 'Bạn là Dân Thường trung thành. Hãy mô tả từ khóa thật tự nhiên và tinh tế, tránh quá lộ liễu để Gián Điệp không đoán được!',
-    },
-    SPY: {
-      name: 'GIÁN ĐIỆP',
-      color: 'text-rose-400',
-      badgeBg: 'bg-rose-500/10 border-rose-500/30 text-rose-300',
-      hint: 'Từ khóa của bạn hơi khác so với Dân Thường! Hãy lắng nghe các câu mô tả khác để ngụy trang và tìm ra từ của Dân Thường!',
-    },
-    MR_WHITE: {
-      name: 'MR. WHITE',
-      color: 'text-purple-400',
-      badgeBg: 'bg-purple-500/10 border-purple-500/30 text-purple-300',
-      hint: 'Bạn không có từ khóa! Hãy chú ý lắng nghe mọi người mô tả, tung hỏa mù và chuẩn bị đoán từ khóa để giành chiến thắng bất ngờ!',
-    },
-  }[secret.role];
+  const isMrWhite = secret.role === 'MR_WHITE';
 
   return (
     <div className="flex flex-col w-full max-w-md mx-auto p-4 space-y-4 text-slate-100 select-none">
@@ -93,24 +74,38 @@ export const SecretWordCard: React.FC<SecretWordCardProps> = ({
         {isRevealed ? (
           <div className="flex flex-col items-center text-center space-y-3 animate-fadeIn w-full">
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wider shadow-sm mb-1">
-              <span className={`px-2.5 py-0.5 rounded-full border ${roleMeta.badgeBg}`}>
-                {roleMeta.name}
+              <span
+                className={`px-2.5 py-0.5 rounded-full border ${
+                  isMrWhite
+                    ? 'border-purple-500/30 bg-purple-500/10 text-purple-300'
+                    : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                }`}
+              >
+                {isMrWhite ? 'MR. WHITE' : 'MẬT THƯ BÍ MẬT'}
               </span>
             </div>
 
             <div className="py-2">
               <span className="text-xs uppercase text-slate-400 tracking-wider font-semibold block mb-1">
-                Từ khóa bí mật
+                {isMrWhite ? 'Mật thư của bạn' : 'Từ khóa bí mật của bạn'}
               </span>
-              <div className={`text-3xl sm:text-4xl font-black tracking-wide ${roleMeta.color}`}>
-                {secret.role === 'MR_WHITE' ? '??? (Bí ẩn)' : secret.word}
+              <div
+                className={`text-3xl sm:text-4xl font-black tracking-wide ${
+                  isMrWhite ? 'text-purple-400' : 'text-amber-400'
+                }`}
+              >
+                {isMrWhite ? 'Bạn không có từ khóa' : secret.word}
               </div>
             </div>
 
             <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-xs text-slate-300 leading-relaxed text-left w-full">
               <div className="flex items-start gap-2">
                 <Flame className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <span>{roleMeta.hint}</span>
+                <span>
+                  {isMrWhite
+                    ? 'Bạn không có từ khóa! Hãy chú ý lắng nghe mọi người mô tả, tung hỏa mù và chuẩn bị đoán từ khóa để giành chiến thắng bất ngờ!'
+                    : 'Hãy ghi nhớ từ khóa! Mô tả thật khéo léo để tìm ra đồng đội và phát hiện ai là kẻ có từ khóa khác biệt.'}
+                </span>
               </div>
             </div>
 

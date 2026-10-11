@@ -40,25 +40,7 @@ export const DescribingView: React.FC<DescribingViewProps> = ({
     setIsRevealed(false);
   }, []);
 
-  const roleMeta = mySecret
-    ? {
-        CIVILIAN: {
-          name: 'DÂN THƯỜNG',
-          color: 'text-cyan-400',
-          badgeBg: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300',
-        },
-        SPY: {
-          name: 'GIÁN ĐIỆP',
-          color: 'text-rose-400',
-          badgeBg: 'bg-rose-500/10 border-rose-500/30 text-rose-300',
-        },
-        MR_WHITE: {
-          name: 'MR. WHITE',
-          color: 'text-purple-400',
-          badgeBg: 'bg-purple-500/10 border-purple-500/30 text-purple-300',
-        },
-      }[mySecret.role]
-    : null;
+  const isMrWhite = mySecret?.role === 'MR_WHITE';
 
   const alivePlayers = players.filter((p) => p.isAlive);
   const currentDescriber = alivePlayers[currentDescriberIndex] || alivePlayers[0];
@@ -271,21 +253,25 @@ export const DescribingView: React.FC<DescribingViewProps> = ({
                 <div className="flex flex-col items-center text-center space-y-2 animate-fadeIn w-full">
                   <span
                     className={`px-2.5 py-0.5 rounded-full border text-xs font-bold uppercase tracking-wider ${
-                      roleMeta?.badgeBg || 'bg-slate-800 text-slate-200'
+                      isMrWhite
+                        ? 'border-purple-500/30 bg-purple-500/10 text-purple-300'
+                        : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
                     }`}
                   >
-                    {roleMeta?.name}
+                    {isMrWhite ? 'MR. WHITE' : 'TỪ KHÓA BÍ MẬT'}
                   </span>
 
                   <div className="py-2">
                     <span className="text-[10px] uppercase text-slate-400 tracking-wider font-semibold block mb-0.5">
-                      Từ khóa của bạn
+                      {isMrWhite ? 'Mật thư của bạn' : 'Từ khóa của bạn'}
                     </span>
                     <div
                       data-testid="peek-secret-word-text"
-                      className={`text-2xl sm:text-3xl font-black tracking-wide ${roleMeta?.color || 'text-amber-400'}`}
+                      className={`text-2xl sm:text-3xl font-black tracking-wide ${
+                        isMrWhite ? 'text-purple-400' : 'text-amber-400'
+                      }`}
                     >
-                      {mySecret.role === 'MR_WHITE' ? '??? (Không có từ)' : mySecret.word}
+                      {isMrWhite ? 'Bạn không có từ khóa' : mySecret.word}
                     </div>
                   </div>
 
