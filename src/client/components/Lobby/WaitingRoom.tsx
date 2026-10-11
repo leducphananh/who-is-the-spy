@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Crown, Copy, Check, Users, Settings, LogOut, Play, ShieldAlert, Sparkles, BookOpen, Edit3, Loader2, AlertCircle } from 'lucide-react';
+import { Crown, Copy, Check, Users, Settings, LogOut, Play, ShieldAlert, Sparkles, BookOpen, Edit3, Loader2, AlertCircle, Lock } from 'lucide-react';
 import type { PlayerPresence } from '../../network/types.js';
 import type { GameConfig, WordPair } from '../../../core/types.js';
 import { AVATAR_OPTIONS, type AvatarOption } from './ProfileSetup.js';
@@ -38,6 +38,8 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
   const [useQuickWords, setUseQuickWords] = useState(Boolean(quickWordPair));
   const [quickCiv, setQuickCiv] = useState(quickWordPair?.civilianWord || '');
   const [quickSpy, setQuickSpy] = useState(quickWordPair?.spyWord || '');
+  const [pendingMysteryPair, setPendingMysteryPair] = useState<WordPair | null>(null);
+  const [revealWords, setRevealWords] = useState(false);
   const [aiTopic, setAiTopic] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -63,29 +65,34 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
 
   const isDuplicateWord =
     useQuickWords &&
+    (!pendingMysteryPair || revealWords) &&
     quickCiv.trim() !== '' &&
     quickSpy.trim() !== '' &&
     quickCiv.trim().toLowerCase() === quickSpy.trim().toLowerCase();
 
   const isQuickWordIncomplete =
-    useQuickWords && (quickCiv.trim() === '' || quickSpy.trim() === '');
+    useQuickWords &&
+    (!pendingMysteryPair || revealWords) &&
+    (quickCiv.trim() === '' || quickSpy.trim() === '');
 
   const canStart = players.length >= 3 && !isDuplicateWord && !isQuickWordIncomplete;
 
   useEffect(() => {
     if (!useQuickWords) {
       onQuickWordPairChange?.(null);
+    } else if (pendingMysteryPair && !revealWords) {
+      onQuickWordPairChange?.(pendingMysteryPair);
     } else if (quickCiv.trim() && quickSpy.trim() && !isDuplicateWord) {
       onQuickWordPairChange?.({
-        id: `custom_${Date.now()}`,
+        id: pendingMysteryPair ? pendingMysteryPair.id : `custom_${Date.now()}`,
         civilianWord: quickCiv.trim(),
         spyWord: quickSpy.trim(),
-        category: 'Tự nhập',
+        category: pendingMysteryPair?.category || 'Tự nhập',
       });
     } else {
       onQuickWordPairChange?.(null);
     }
-  }, [useQuickWords, quickCiv, quickSpy, isDuplicateWord]);
+  }, [useQuickWords, pendingMysteryPair, revealWords, quickCiv, quickSpy, isDuplicateWord]);
 
   const handleSpyCountChange = (count: number) => {
     if (!isHost || !onUpdateConfig) return;
@@ -108,6 +115,8 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
     setAiError(null);
     try {
       const pair = await generateCustomWordPair(aiTopic.trim() || undefined);
+      setPendingMysteryPair(pair);
+      setRevealWords(false);
       setQuickCiv(pair.civilianWord);
       setQuickSpy(pair.spyWord);
     } catch (err) {
@@ -324,7 +333,13 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
                   type="checkbox"
                   data-testid="toggle-quick-word"
                   checked={useQuickWords}
-                  onChange={(e) => setUseQuickWords(e.target.checked)}
+                  onChange={(e) => {
+                    setUseQuickWords(e.target.checked);
+                    if (!e.target.checked) {
+                      setPendingMysteryPair(null);
+                      setRevealWords(false);
+                    }
+                  }}
                   className="rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-0 w-4 h-4"
                 />
                 <span className="flex items-center gap-1">
@@ -335,94 +350,197 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
             </div>
 
             {useQuickWords && (
-              <div className="space-y-2 pt-1 animate-fadeIn">
-                {/* AI Suggestion Bar */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    data-testid="ai-topic-input"
-                    placeholder="Chủ đề (vd: Ẩm thực, Công nghệ...)"
-                    value={aiTopic}
-                    onChange={(e) => {
-                      setAiTopic(e.target.value);
-                      if (aiError) setAiError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAiSuggest();
-                      }
-                    }}
-                    className="flex-1 px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-400"
-                  />
-                  <button
-                    type="button"
-                    data-testid="ai-suggest-btn"
-                    disabled={isAiLoading}
-                    onClick={handleAiSuggest}
-                    className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 shrink-0 disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer"
+              <div className="space-y-2.5 pt-1 animate-fadeIn">
+                {pendingMysteryPair && !revealWords ? (
+                  <div
+                    data-testid="sealed-mystery-card"
+                    className="p-3 bg-slate-950/90 border border-amber-500/50 rounded-2xl space-y-3 shadow-xl backdrop-blur-md"
                   >
-                    {isAiLoading ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Đang tạo...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5 text-slate-950" />
-                        <span>AI gợi ý</span>
-                      </>
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 shadow-inner">
+                        <Lock className="w-4 h-4 text-amber-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-amber-300">
+                            Mật thư bí mật đã được niêm phong
+                          </span>
+                          <span className="text-xs">🔒</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                          Từ khóa đã được AI tạo ngầm. Host sẽ không biết trước từ để cùng chơi công bằng!
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Topic / Category Badge */}
+                    <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span className="text-[11px] text-slate-400 font-medium">Chủ đề ván:</span>
+                      <span
+                        data-testid="mystery-category-badge"
+                        className="text-xs font-bold text-cyan-300 px-2 py-0.5 rounded-lg bg-cyan-950/80 border border-cyan-800"
+                      >
+                        {pendingMysteryPair.category || 'Tự động'}
+                      </span>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+                      <button
+                        type="button"
+                        data-testid="regenerate-mystery-btn"
+                        disabled={isAiLoading}
+                        onClick={handleAiSuggest}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-amber-400 font-semibold text-xs rounded-xl border border-slate-700 flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        {isAiLoading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Đang tạo...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Tạo cặp từ khác</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="cancel-mystery-btn"
+                        onClick={() => {
+                          setPendingMysteryPair(null);
+                          setQuickCiv('');
+                          setQuickSpy('');
+                          setRevealWords(false);
+                        }}
+                        className="px-2.5 py-1.5 text-slate-400 hover:text-slate-200 text-xs transition-colors"
+                      >
+                        Tự nhập tay
+                      </button>
+                    </div>
+
+                    {/* Host Reveal Toggle */}
+                    <div className="pt-0.5">
+                      <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-400 hover:text-slate-300">
+                        <input
+                          type="checkbox"
+                          data-testid="toggle-reveal-words"
+                          checked={revealWords}
+                          onChange={(e) => setRevealWords(e.target.checked)}
+                          className="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0 w-3.5 h-3.5"
+                        />
+                        <span>Mở xem từ khóa (chỉ bật nếu Host không chơi ván này)</span>
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {pendingMysteryPair && revealWords && (
+                      <div className="flex items-center justify-between p-2 rounded-xl bg-amber-950/30 border border-amber-500/30 text-amber-300 text-[11px]">
+                        <span>Đang mở xem từ khóa (Host làm Game Master)</span>
+                        <button
+                          type="button"
+                          data-testid="reseal-mystery-btn"
+                          onClick={() => setRevealWords(false)}
+                          className="text-xs text-amber-400 underline font-semibold hover:text-amber-300 ml-2"
+                        >
+                          Niêm phong lại 🔒
+                        </button>
+                      </div>
                     )}
-                  </button>
-                </div>
 
-                {aiError && (
-                  <p data-testid="ai-error-msg" className="text-[11px] text-rose-400 flex items-center gap-1">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>{aiError}</span>
-                  </p>
-                )}
+                    {/* AI Suggestion Bar */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        data-testid="ai-topic-input"
+                        placeholder="Chủ đề (vd: Ẩm thực, Công nghệ...)"
+                        value={aiTopic}
+                        onChange={(e) => {
+                          setAiTopic(e.target.value);
+                          if (aiError) setAiError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAiSuggest();
+                          }
+                        }}
+                        className="flex-1 px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-400"
+                      />
+                      <button
+                        type="button"
+                        data-testid="ai-suggest-btn"
+                        disabled={isAiLoading}
+                        onClick={handleAiSuggest}
+                        className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 shrink-0 disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer"
+                      >
+                        {isAiLoading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Đang tạo...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                            <span>AI gợi ý</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-cyan-400 font-semibold uppercase block mb-0.5">
-                      Từ Dân Thường
-                    </label>
-                    <input
-                      type="text"
-                      data-testid="quick-civ-word"
-                      placeholder="vd: Cà phê"
-                      value={quickCiv}
-                      onChange={(e) => setQuickCiv(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-rose-400 font-semibold uppercase block mb-0.5">
-                      Từ Gián Điệp
-                    </label>
-                    <input
-                      type="text"
-                      data-testid="quick-spy-word"
-                      placeholder="vd: Trà đá"
-                      value={quickSpy}
-                      onChange={(e) => setQuickSpy(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-400"
-                    />
-                  </div>
-                </div>
+                    {aiError && (
+                      <p data-testid="ai-error-msg" className="text-[11px] text-rose-400 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{aiError}</span>
+                      </p>
+                    )}
 
-                {isDuplicateWord && (
-                  <p className="text-[11px] text-rose-400 flex items-center gap-1">
-                    <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-                    <span>Từ Dân thường và Gián điệp không được trùng nhau</span>
-                  </p>
-                )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] text-cyan-400 font-semibold uppercase block mb-0.5">
+                          Từ Dân Thường
+                        </label>
+                        <input
+                          type="text"
+                          data-testid="quick-civ-word"
+                          placeholder="vd: Cà phê"
+                          value={quickCiv}
+                          onChange={(e) => setQuickCiv(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-rose-400 font-semibold uppercase block mb-0.5">
+                          Từ Gián Điệp
+                        </label>
+                        <input
+                          type="text"
+                          data-testid="quick-spy-word"
+                          placeholder="vd: Trà đá"
+                          value={quickSpy}
+                          onChange={(e) => setQuickSpy(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-400"
+                        />
+                      </div>
+                    </div>
 
-                {isQuickWordIncomplete && (
-                  <p className="text-[11px] text-amber-400/80">
-                    Vui lòng nhập đầy đủ cả 2 từ khóa
-                  </p>
+                    {isDuplicateWord && (
+                      <p className="text-[11px] text-rose-400 flex items-center gap-1">
+                        <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                        <span>Từ Dân thường và Gián điệp không được trùng nhau</span>
+                      </p>
+                    )}
+
+                    {isQuickWordIncomplete && (
+                      <p className="text-[11px] text-amber-400/80">
+                        Vui lòng nhập đầy đủ cả 2 từ khóa
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             )}
