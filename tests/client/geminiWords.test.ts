@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { generateCustomWordPair, isGeminiConfigured } from '../../src/client/lib/geminiWords.js';
 
-describe('Gemini AI Word Suggestions (geminiWords.ts)', () => {
+describe('Client Gemini AI Service (geminiWords.ts)', () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -10,50 +10,24 @@ describe('Gemini AI Word Suggestions (geminiWords.ts)', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    delete (import.meta.env as Record<string, unknown>).VITE_GEMINI_API_KEY;
   });
 
-  it('isGeminiConfigured: trả về false khi thiếu key, true khi có key', () => {
-    delete (import.meta.env as Record<string, unknown>).VITE_GEMINI_API_KEY;
-    expect(isGeminiConfigured()).toBe(false);
-
-    (import.meta.env as Record<string, unknown>).VITE_GEMINI_API_KEY = 'test-key-123';
+  it('isGeminiConfigured: trả về true vì API key được bảo mật ở Serverless Proxy', () => {
     expect(isGeminiConfigured()).toBe(true);
   });
 
-  it('generateCustomWordPair: ném lỗi rõ ràng khi chưa cấu hình VITE_GEMINI_API_KEY', async () => {
-    delete (import.meta.env as Record<string, unknown>).VITE_GEMINI_API_KEY;
-
-    await expect(generateCustomWordPair()).rejects.toThrowError(
-      /chưa cấu hình VITE_GEMINI_API_KEY/i
-    );
-  });
-
-  it('generateCustomWordPair: gọi Gemini API thành công và trả về cặp từ hợp lệ', async () => {
-    (import.meta.env as Record<string, unknown>).VITE_GEMINI_API_KEY = 'test-gemini-key';
-
-    const mockResponsePayload = {
-      candidates: [
-        {
-          content: {
-            parts: [
-              {
-                text: JSON.stringify({
-                  civilianWord: 'Trà sữa',
-                  spyWord: 'Cà phê muối',
-                  category: 'Đồ uống giới trẻ',
-                }),
-              },
-            ],
-          },
-        },
-      ],
+  it('generateCustomWordPair: gọi /api/generate-words thành công và trả về cặp từ', async () => {
+    const mockApiResponse = {
+      id: 'ai-test-123',
+      civilianWord: 'Trà sữa',
+      spyWord: 'Cà phê muối',
+      category: 'Đồ uống giới trẻ',
     };
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => mockResponsePayload,
+      json: async () => mockApiResponse,
     } as Response);
 
     globalThis.fetch = mockFetch;
@@ -62,60 +36,53 @@ describe('Gemini AI Word Suggestions (geminiWords.ts)', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [calledUrl, calledOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(calledUrl).toContain('gemini-1.5-flash:generateContent');
-    expect(calledUrl).toContain('key=test-gemini-key');
+    expect(calledUrl).toBe('/api/generate-words');
+    expect(calledOptions.method).toBe('POST');
+    expect(calledOptions.headers).toEqual({ 'Content-Type': 'application/json' });
 
     const bodyObj = JSON.parse(calledOptions.body as string);
-    expect(bodyObj.contents[0].parts[0].text).toContain('Đồ uống');
+    expect(bodyObj).toEqual({ topic: 'Đồ uống' });
 
     expect(result.civilianWord).toBe('Trà sữa');
     expect(result.spyWord).toBe('Cà phê muối');
     expect(result.category).toBe('Đồ uống giới trẻ');
-    expect(result.id).toMatch(/^ai_/);
-  });
-
-  it('generateCustomWordPair: xử lý markdown code block ```json ... ``` từ Gemini', async () => {
-    (import.meta.env as Record<string, unknown>).VITE_GEMINI_API_KEY = 'test-gemini-key';
-
-    const mockResponsePayload = {
-      candidates: [
-        {
-          content: {
-            parts: [
-              {
-                text: '```json\n{"civilianWord":"Bánh chưng","spyWord":"Bánh tét","category":"Ẩm thực Tết"}\n```',
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => mockResponsePayload,
-    } as Response);
-
-    const result = await generateCustomWordPair();
-
-    expect(result.civilianWord).toBe('Bánh chưng');
-    expect(result.spyWord).toBe('Bánh tét');
-    expect(result.category).toBe('Ẩm thực Tết');
+    expect(result.id).toBe('ai-test-123');
   });
 
   it('generateCustomWordPair: xử lý lỗi khi HTTP status không phải 200', async () => {
-    (import.meta.env as Record<string, unknown>).VITE_GEMINI_API_KEY = 'test-gemini-key';
-
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
-      status: 403,
-      statusText: 'Forbidden',
-      text: async () => 'API key invalid',
+      status: 500,
+      json: async () => ({
+        error: 'Chưa cấu hình GEMINI_API_KEY trên server.',
+      }),
     } as Response);
 
     await expect(generateCustomWordPair()).rejects.toThrowError(
-      /không thể kết nối đến ai gemini/i
+      /Chưa cấu hình GEMINI_API_KEY trên server/i
+    );
+  });
+
+  it('generateCustomWordPair: xử lý lỗi mạng khi mất kết nối', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('Failed to fetch'));
+
+    await expect(generateCustomWordPair()).rejects.toThrowError(
+      /không thể kết nối đến máy chủ/i
+    );
+  });
+
+  it('generateCustomWordPair: xử lý khi máy chủ không trả về đủ từ', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        civilianWord: 'Chỉ có 1 từ',
+        spyWord: '',
+      }),
+    } as Response);
+
+    await expect(generateCustomWordPair()).rejects.toThrowError(
+      /máy chủ không trả về đủ từ/i
     );
   });
 });

@@ -25,6 +25,7 @@
     "@types/node": "^22.10.1",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
+    "@vercel/node": "^23.0.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "happy-dom": "^17.1.8",
