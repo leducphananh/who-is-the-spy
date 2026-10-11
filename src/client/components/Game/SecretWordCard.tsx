@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Lock, Unlock, Eye, CheckCircle2, ShieldCheck, Flame } from 'lucide-react';
+import { Lock, Unlock, Eye, CheckCircle2, ShieldCheck, Flame, Fingerprint } from 'lucide-react';
 import type { SecretWordPayload } from '../../network/types.js';
 import { soundEffects } from '../../lib/soundEffects.js';
 
@@ -21,7 +21,7 @@ export const SecretWordCard: React.FC<SecretWordCardProps> = ({
     soundEffects.playRoleReveal();
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
-        navigator.vibrate(40);
+        navigator.vibrate(50);
       } catch {
         // Ignored
       }
@@ -63,7 +63,7 @@ export const SecretWordCard: React.FC<SecretWordCardProps> = ({
   }[secret.role];
 
   return (
-    <div className="flex flex-col w-full max-w-md mx-auto p-4 space-y-5 text-slate-100 select-none">
+    <div className="flex flex-col w-full max-w-md mx-auto p-4 space-y-4 text-slate-100 select-none">
       {/* Title */}
       <div className="text-center space-y-1">
         <h2 className="text-xl font-bold tracking-tight text-amber-400 flex items-center justify-center gap-2">
@@ -71,19 +71,20 @@ export const SecretWordCard: React.FC<SecretWordCardProps> = ({
           HỒ SƠ MẬT VỤ
         </h2>
         <p className="text-xs text-slate-400">
-          Chống nhìn lén: Nhấn và giữ phong bì bên dưới để kiểm tra từ khóa
+          Chống nhìn lén: Nhấn và giữ nút cảm ứng bên dưới để kiểm tra từ khóa
         </p>
       </div>
 
-      {/* Secret Envelope Card Area */}
+      {/* Secret Envelope Card Area (Display Zone) */}
       <div
         data-testid="secret-card-area"
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onTouchCancel={handlePointerUp}
         onContextMenu={(e) => e.preventDefault()}
-        className={`relative w-full rounded-2xl border-2 transition-all duration-200 cursor-pointer p-6 flex flex-col items-center justify-center min-h-[260px] shadow-2xl backdrop-blur-md ${
+        className={`relative w-full rounded-2xl border-2 transition-all duration-200 cursor-pointer p-6 flex flex-col items-center justify-center min-h-[250px] shadow-2xl backdrop-blur-md ${
           isRevealed
             ? 'bg-slate-900 border-amber-500/60 shadow-amber-500/10 scale-[1.01]'
             : 'bg-slate-950/90 border-dashed border-slate-700/80 hover:border-slate-600 shadow-black'
@@ -101,7 +102,7 @@ export const SecretWordCard: React.FC<SecretWordCardProps> = ({
               <span className="text-xs uppercase text-slate-400 tracking-wider font-semibold block mb-1">
                 Từ khóa bí mật
               </span>
-              <div className={`text-3xl font-black tracking-wide ${roleMeta.color}`}>
+              <div className={`text-3xl sm:text-4xl font-black tracking-wide ${roleMeta.color}`}>
                 {secret.role === 'MR_WHITE' ? '??? (Bí ẩn)' : secret.word}
               </div>
             </div>
@@ -141,9 +142,46 @@ export const SecretWordCard: React.FC<SecretWordCardProps> = ({
         )}
       </div>
 
+      {/* Separated Mobile Thumb Touch Zone */}
+      <div className="pt-1">
+        <button
+          type="button"
+          data-testid="thumb-touch-zone"
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onTouchCancel={handlePointerUp}
+          onContextMenu={(e) => e.preventDefault()}
+          className={`w-full min-h-[64px] rounded-2xl font-bold flex items-center justify-center gap-3 transition-all duration-150 select-none touch-none shadow-xl border-2 cursor-pointer ${
+            isRevealed
+              ? 'bg-amber-400 text-slate-950 border-amber-300 ring-4 ring-amber-400/30 scale-[0.98]'
+              : 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 hover:from-slate-800 hover:to-slate-800 text-amber-400 border-amber-500/50 hover:border-amber-400 active:scale-[0.98]'
+          }`}
+        >
+          {isRevealed ? (
+            <>
+              <Unlock className="w-6 h-6 animate-pulse" />
+              <div className="flex flex-col text-left">
+                <span className="text-sm font-black tracking-wide">ĐANG HIỂN THỊ TỪ KHÓA</span>
+                <span className="text-[11px] font-medium text-slate-900/80">Nhả ngón tay ra để che giấu ngay</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <Fingerprint className="w-6 h-6 text-amber-400 animate-pulse" />
+              <div className="flex flex-col text-left">
+                <span className="text-sm font-extrabold tracking-wide">👇 Nhấn và giữ tại đây để xem</span>
+                <span className="text-[11px] text-slate-400 font-normal">Không bị ngón tay che khuất từ khóa</span>
+              </div>
+            </>
+          )}
+        </button>
+      </div>
+
       {/* Confirmation Button */}
       {onConfirmReady && (
-        <div className="pt-2">
+        <div className="pt-1">
           <button
             onClick={onConfirmReady}
             disabled={isReady}
@@ -161,3 +199,4 @@ export const SecretWordCard: React.FC<SecretWordCardProps> = ({
     </div>
   );
 };
+

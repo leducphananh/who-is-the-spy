@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Crown, Copy, Check, Users, Settings, LogOut, Play, ShieldAlert, Sparkles, BookOpen, Edit3 } from 'lucide-react';
+import { Crown, Copy, Check, Users, Settings, LogOut, Play, ShieldAlert, Sparkles, BookOpen, Edit3, Loader2, AlertCircle } from 'lucide-react';
 import type { PlayerPresence } from '../../network/types.js';
 import type { GameConfig, WordPair } from '../../../core/types.js';
 import { AVATAR_OPTIONS, type AvatarOption } from './ProfileSetup.js';
+import { generateCustomWordPair } from '../../lib/geminiWords.js';
 
 export interface WaitingRoomProps {
   roomCode: string;
@@ -37,6 +38,9 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
   const [useQuickWords, setUseQuickWords] = useState(Boolean(quickWordPair));
   const [quickCiv, setQuickCiv] = useState(quickWordPair?.civilianWord || '');
   const [quickSpy, setQuickSpy] = useState(quickWordPair?.spyWord || '');
+  const [aiTopic, setAiTopic] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const handleCopyCode = async () => {
     try {
@@ -97,6 +101,21 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
       ...config,
       hasMrWhite: !config.hasMrWhite,
     });
+  };
+
+  const handleAiSuggest = async () => {
+    setIsAiLoading(true);
+    setAiError(null);
+    try {
+      const pair = await generateCustomWordPair(aiTopic.trim() || undefined);
+      setQuickCiv(pair.civilianWord);
+      setQuickSpy(pair.spyWord);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Không thể tạo gợi ý từ AI';
+      setAiError(msg);
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   return (
@@ -317,6 +336,53 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
 
             {useQuickWords && (
               <div className="space-y-2 pt-1 animate-fadeIn">
+                {/* AI Suggestion Bar */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    data-testid="ai-topic-input"
+                    placeholder="Chủ đề (vd: Ẩm thực, Công nghệ...)"
+                    value={aiTopic}
+                    onChange={(e) => {
+                      setAiTopic(e.target.value);
+                      if (aiError) setAiError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAiSuggest();
+                      }
+                    }}
+                    className="flex-1 px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-400"
+                  />
+                  <button
+                    type="button"
+                    data-testid="ai-suggest-btn"
+                    disabled={isAiLoading}
+                    onClick={handleAiSuggest}
+                    className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 shrink-0 disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer"
+                  >
+                    {isAiLoading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Đang tạo...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                        <span>AI gợi ý</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {aiError && (
+                  <p data-testid="ai-error-msg" className="text-[11px] text-rose-400 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{aiError}</span>
+                  </p>
+                )}
+
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-cyan-400 font-semibold uppercase block mb-0.5">

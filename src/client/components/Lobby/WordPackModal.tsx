@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Plus, Trash2, X, CheckCircle2 } from 'lucide-react';
+import { BookOpen, Plus, Trash2, X, CheckCircle2, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import type { WordPair } from '../../../core/types.js';
+import { generateCustomWordPair } from '../../lib/geminiWords.js';
 
 export interface CustomWordPack {
   id: string;
@@ -52,6 +53,9 @@ export const WordPackModal: React.FC<WordPackModalProps> = ({
   const [newCivWord, setNewCivWord] = useState('');
   const [newSpyWord, setNewSpyWord] = useState('');
   const [newCategory, setNewCategory] = useState('');
+  const [aiTopic, setAiTopic] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Persist packs helper
   const savePacks = (newPacks: CustomWordPack[]) => {
@@ -123,6 +127,26 @@ export const WordPackModal: React.FC<WordPackModalProps> = ({
     setNewCivWord('');
     setNewSpyWord('');
     setNewCategory('');
+    setAiTopic('');
+    setAiError(null);
+  };
+
+  const handleAiSuggest = async () => {
+    setIsAiLoading(true);
+    setAiError(null);
+    try {
+      const pair = await generateCustomWordPair(aiTopic.trim() || newCategory.trim() || undefined);
+      setNewCivWord(pair.civilianWord);
+      setNewSpyWord(pair.spyWord);
+      if (pair.category) {
+        setNewCategory(pair.category);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Không thể tạo gợi ý từ AI';
+      setAiError(msg);
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   const handleDeletePair = (pairId: string) => {
@@ -324,6 +348,53 @@ export const WordPackModal: React.FC<WordPackModalProps> = ({
               {/* Add Pair Form */}
               {isAddingPair && (
                 <form onSubmit={handleAddPair} className="p-3 bg-slate-900 border border-amber-500/40 rounded-xl space-y-2">
+                  {/* AI Suggestion Bar */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      data-testid="modal-ai-topic-input"
+                      placeholder="Chủ đề AI gợi ý (vd: Ẩm thực, IT...)"
+                      value={aiTopic}
+                      onChange={(e) => {
+                        setAiTopic(e.target.value);
+                        if (aiError) setAiError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAiSuggest();
+                        }
+                      }}
+                      className="flex-1 px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-400"
+                    />
+                    <button
+                      type="button"
+                      data-testid="modal-ai-suggest-btn"
+                      disabled={isAiLoading}
+                      onClick={handleAiSuggest}
+                      className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 shrink-0 disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer"
+                    >
+                      {isAiLoading ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Đang tạo...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                          <span>AI gợi ý</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {aiError && (
+                    <p data-testid="modal-ai-error-msg" className="text-[11px] text-rose-400 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{aiError}</span>
+                    </p>
+                  )}
+
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       type="text"
@@ -350,7 +421,10 @@ export const WordPackModal: React.FC<WordPackModalProps> = ({
                   <div className="flex justify-end gap-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => setIsAddingPair(false)}
+                      onClick={() => {
+                        setIsAddingPair(false);
+                        setAiError(null);
+                      }}
                       className="px-2.5 py-1 text-xs text-slate-400 hover:text-slate-200"
                     >
                       Hủy

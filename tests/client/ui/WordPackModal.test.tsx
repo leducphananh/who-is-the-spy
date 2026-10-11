@@ -116,4 +116,62 @@ describe('WordPackModal Component', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect.mock.calls[0]?.[0]?.name).toBe('Chuyên ngành IT');
   });
+
+  it('hỗ trợ nút AI gợi ý cặp từ trong form Thêm cặp từ và tự điền dữ liệu', async () => {
+    localStorage.setItem(CUSTOM_WORD_PACKS_KEY, JSON.stringify(samplePacks));
+    const geminiWords = await import('../../../src/client/lib/geminiWords.js');
+    const mockGenerate = vi.spyOn(geminiWords, 'generateCustomWordPair').mockResolvedValue({
+      id: 'ai-2',
+      civilianWord: 'Trà sữa',
+      spyWord: 'Cà phê muối',
+      category: 'Đồ uống',
+    });
+
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <WordPackModal
+          isOpen={true}
+          onClose={vi.fn()}
+        />
+      );
+    });
+
+    // Bấm Thêm cặp từ
+    const addPairBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent?.includes('Thêm cặp từ')
+    );
+    expect(addPairBtn).toBeDefined();
+
+    await act(async () => {
+      addPairBtn?.click();
+    });
+
+    const topicInput = container.querySelector('[data-testid="modal-ai-topic-input"]') as HTMLInputElement;
+    const aiBtn = container.querySelector('[data-testid="modal-ai-suggest-btn"]') as HTMLButtonElement;
+    expect(topicInput).not.toBeNull();
+    expect(aiBtn).not.toBeNull();
+
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    await act(async () => {
+      setter?.call(topicInput, 'Đồ uống');
+      topicInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await act(async () => {
+      aiBtn.click();
+    });
+
+    expect(mockGenerate).toHaveBeenCalledWith('Đồ uống');
+
+    const civInput = container.querySelector('input[placeholder="Từ Dân Thường"]') as HTMLInputElement;
+    const spyInput = container.querySelector('input[placeholder="Từ Gián Điệp"]') as HTMLInputElement;
+    const catInput = container.querySelector('input[placeholder*="Chủ đề"]') as HTMLInputElement;
+
+    expect(civInput.value).toBe('Trà sữa');
+    expect(spyInput.value).toBe('Cà phê muối');
+    expect(catInput.value).toBe('Đồ uống');
+
+    mockGenerate.mockRestore();
+  });
 });

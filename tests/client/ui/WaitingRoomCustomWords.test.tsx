@@ -108,4 +108,96 @@ describe('WaitingRoom Custom Words & Word Pack Integration', () => {
     expect(container.textContent).not.toContain('không được trùng nhau');
     expect(onQuickWordChange).toHaveBeenCalled();
   });
+
+  it('cho phép gọi AI gợi ý cặp từ và tự động điền vào 2 ô Civilian & Spy', async () => {
+    const geminiWords = await import('../../../src/client/lib/geminiWords.js');
+    const mockGenerate = vi.spyOn(geminiWords, 'generateCustomWordPair').mockResolvedValue({
+      id: 'ai-1',
+      civilianWord: 'Phở bò',
+      spyWord: 'Bún bò Huế',
+      category: 'Ẩm thực',
+    });
+
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <WaitingRoom
+          roomCode="SPY123"
+          myUserId="p1"
+          isHost={true}
+          players={threePlayers}
+          config={{ spyCount: 1, hasMrWhite: false }}
+          onStartGame={vi.fn()}
+          onLeaveRoom={vi.fn()}
+        />
+      );
+    });
+
+    const toggleQuickWord = container.querySelector('[data-testid="toggle-quick-word"]') as HTMLInputElement;
+    await act(async () => {
+      toggleQuickWord.click();
+    });
+
+    const aiTopicInput = container.querySelector('[data-testid="ai-topic-input"]') as HTMLInputElement;
+    const aiBtn = container.querySelector('[data-testid="ai-suggest-btn"]') as HTMLButtonElement;
+    expect(aiTopicInput).not.toBeNull();
+    expect(aiBtn).not.toBeNull();
+
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    await act(async () => {
+      setter?.call(aiTopicInput, 'Ẩm thực');
+      aiTopicInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await act(async () => {
+      aiBtn.click();
+    });
+
+    expect(mockGenerate).toHaveBeenCalledWith('Ẩm thực');
+
+    const civInput = container.querySelector('[data-testid="quick-civ-word"]') as HTMLInputElement;
+    const spyInput = container.querySelector('[data-testid="quick-spy-word"]') as HTMLInputElement;
+    expect(civInput.value).toBe('Phở bò');
+    expect(spyInput.value).toBe('Bún bò Huế');
+
+    mockGenerate.mockRestore();
+  });
+
+  it('xử lý và hiển thị thông báo lỗi khi AI gợi ý thất bại', async () => {
+    const geminiWords = await import('../../../src/client/lib/geminiWords.js');
+    const mockGenerate = vi.spyOn(geminiWords, 'generateCustomWordPair').mockRejectedValue(
+      new Error('Chưa cấu hình API Key')
+    );
+
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <WaitingRoom
+          roomCode="SPY123"
+          myUserId="p1"
+          isHost={true}
+          players={threePlayers}
+          config={{ spyCount: 1, hasMrWhite: false }}
+          onStartGame={vi.fn()}
+          onLeaveRoom={vi.fn()}
+        />
+      );
+    });
+
+    const toggleQuickWord = container.querySelector('[data-testid="toggle-quick-word"]') as HTMLInputElement;
+    await act(async () => {
+      toggleQuickWord.click();
+    });
+
+    const aiBtn = container.querySelector('[data-testid="ai-suggest-btn"]') as HTMLButtonElement;
+    await act(async () => {
+      aiBtn.click();
+    });
+
+    const errorMsg = container.querySelector('[data-testid="ai-error-msg"]');
+    expect(errorMsg).not.toBeNull();
+    expect(errorMsg?.textContent).toContain('Chưa cấu hình API Key');
+
+    mockGenerate.mockRestore();
+  });
 });

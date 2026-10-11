@@ -99,4 +99,37 @@ describe('SecretWordCard Component', () => {
     });
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
+
+  it('Separated Thumb Zone: chạm giữ nút cảm ứng bên dưới để giải mật và kích hoạt haptic vibrate', async () => {
+    const vibrateMock = vi.fn();
+    (globalThis as unknown as { navigator: { vibrate: (ms: number) => boolean } }).navigator = {
+      vibrate: vibrateMock,
+    };
+
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<SecretWordCard secret={civilianSecret} />);
+    });
+
+    const thumbBtn = container.querySelector('[data-testid="thumb-touch-zone"]') as HTMLElement;
+    expect(thumbBtn).not.toBeNull();
+    expect(thumbBtn.textContent).toContain('Nhấn và giữ tại đây để xem');
+
+    // Chạm vào nút cảm ứng
+    await act(async () => {
+      thumbBtn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain('Cà phê sữa');
+    expect(thumbBtn.textContent).toContain('ĐANG HIỂN THỊ TỪ KHÓA');
+    expect(vibrateMock).toHaveBeenCalledWith(50);
+
+    // Nhả ngón tay ra
+    await act(async () => {
+      thumbBtn.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    });
+
+    expect(container.textContent).not.toContain('Cà phê sữa');
+    expect(thumbBtn.textContent).toContain('Nhấn và giữ tại đây để xem');
+  });
 });
